@@ -1,6 +1,10 @@
-const std = @import("std");
-
 const version = "0.1.0";
+
+const OutputFormat = enum {
+    json,
+    markdown,
+    terminal,
+};
 
 const Field = enum {
     scheme,
@@ -35,40 +39,7 @@ fn getComponentString(component: ?std.Uri.Component) ?[]const u8 {
     };
 }
 
-fn writeJsonString(file: std.fs.File, s: []const u8) !void {
-    try file.writeAll("\"");
-    for (s) |c| {
-        switch (c) {
-            '"' => try file.writeAll("\\\""),
-            '\\' => try file.writeAll("\\\\"),
-            '\n' => try file.writeAll("\\n"),
-            '\r' => try file.writeAll("\\r"),
-            '\t' => try file.writeAll("\\t"),
-            else => {
-                if (c < 0x20) {
-                    var buf: [6]u8 = undefined;
-                    const slice = std.fmt.bufPrint(&buf, "\\u{x:0>4}", .{c}) catch unreachable;
-                    try file.writeAll(slice);
-                } else {
-                    try file.writeAll(&[_]u8{c});
-                }
-            },
-        }
-    }
-    try file.writeAll("\"");
-}
-
-fn writeString(file: std.fs.File, s: []const u8) !void {
-    try file.writeAll(s);
-}
-
-fn writeInt(file: std.fs.File, comptime T: type, value: T) !void {
-    var buf: [20]u8 = undefined;
-    const slice = std.fmt.bufPrint(&buf, "{d}", .{value}) catch unreachable;
-    try file.writeAll(slice);
-}
-
-fn printHelp(file: std.fs.File) !void {
+fn printHelp(file: File) !void {
     try file.writeAll(
         \\Usage: urlparse [OPTIONS] <URL>
         \\
@@ -84,25 +55,34 @@ fn printHelp(file: std.fs.File) !void {
         \\Examples:
         \\  urlparse "https://example.com/path?query=value#fragment"
         \\  urlparse --json "https://user:pass@example.com:8080/path"
+        \\  urlparse --markdown "https://user:pass@example.com:8080/path"
         \\  urlparse --field host "https://example.com/path"
         \\
     );
 }
 
-fn printVersion(file: std.fs.File) !void {
+fn printVersion(file: File) !void {
     try file.writeAll("urlparse ");
     try file.writeAll(version);
     try file.writeAll("\n");
 }
 
 pub fn main() !void {
-    const stdout = std.fs.File.stdout();
-    const stderr = std.fs.File.stderr();
+    const stdout = File.stdout();
+    const stderr = File.stderr();
+
+    var stdout_buf: [1024]u8 = undefined;
+    var stdout_writer = stdout.writer(&stdout_buf);
+    var stdout_writer_interface = &stdout_writer.interface;
+
+    var stderr_buf: [1024]u8 = undefined;
+    var stderr_writer = stderr.writer(&stderr_buf);
+    var stderr_writer_interface = &stderr_writer.interface;
 
     var args = std.process.args();
     _ = args.skip(); // Skip program name
 
-    var json_output = false;
+    var output_format: OutputFormat = if (stdout.isTty()) .terminal else .markdown;
     var field_filter: ?Field = null;
     var url: ?[]const u8 = null;
 
@@ -114,23 +94,28 @@ pub fn main() !void {
             try printVersion(stdout);
             return;
         } else if (std.mem.eql(u8, arg, "--json")) {
-            json_output = true;
+            output_format = .json;
+        } else if (std.mem.eql(u8, arg, "--markdown")) {
+            output_format = .markdown;
         } else if (std.mem.eql(u8, arg, "--field")) {
             const field_name = args.next() orelse {
-                try stderr.writeAll("error: --field requires a field name argument\n");
+                try stderr_writer_interface.writeAll("error: --field requires a field name argument\n");
+                try stderr_writer_interface.flush();
                 std.process.exit(1);
             };
             field_filter = Field.fromString(field_name) orelse {
-                try stderr.writeAll("error: unknown field '");
-                try stderr.writeAll(field_name);
-                try stderr.writeAll("'\n");
-                try stderr.writeAll("valid fields: scheme, user, password, host, port, path, query, fragment\n");
+                try stderr_writer_interface.writeAll("error: unknown field '");
+                try stderr_writer_interface.writeAll(field_name);
+                try stderr_writer_interface.writeAll("'\n");
+                try stderr_writer_interface.writeAll("valid fields: scheme, user, password, host, port, path, query, fragment\n");
+                try stderr_writer_interface.flush();
                 std.process.exit(1);
             };
         } else if (std.mem.startsWith(u8, arg, "-")) {
-            try stderr.writeAll("error: unknown option '");
-            try stderr.writeAll(arg);
-            try stderr.writeAll("'\n");
+            try stderr_writer_interface.writeAll("error: unknown option '");
+            try stderr_writer_interface.writeAll(arg);
+            try stderr_writer_interface.writeAll("'\n");
+            try stderr_writer_interface.flush();
             std.process.exit(1);
         } else {
             url = arg;
@@ -138,16 +123,18 @@ pub fn main() !void {
     }
 
     const url_str = url orelse {
-        try stderr.writeAll("error: no URL provided\n");
-        try stderr.writeAll("usage: urlparse [OPTIONS] <URL>\n");
-        try stderr.writeAll("try 'urlparse --help' for more information\n");
+        try stderr_writer_interface.writeAll("error: no URL provided\n");
+        try stderr_writer_interface.writeAll("usage: urlparse [OPTIONS] <URL>\n");
+        try stderr_writer_interface.writeAll("try 'urlparse --help' for more information\n");
+        try stderr_writer_interface.flush();
         std.process.exit(1);
     };
 
     const uri = std.Uri.parse(url_str) catch |err| {
-        try stderr.writeAll("error: failed to parse URL: ");
-        try stderr.writeAll(@errorName(err));
-        try stderr.writeAll("\n");
+        try stderr_writer_interface.writeAll("error: failed to parse URL: ");
+        try stderr_writer_interface.writeAll(@errorName(err));
+        try stderr_writer_interface.writeAll("\n");
+        try stderr_writer_interface.flush();
         std.process.exit(1);
     };
 
@@ -176,123 +163,127 @@ pub fn main() !void {
 
         if (field == .port) {
             if (port) |p| {
-                try writeInt(stdout, u16, p);
-                try stdout.writeAll("\n");
+                try stdout_writer_interface.writeInt(u16, p, .little);
+                try stdout_writer_interface.writeAll("\n");
             }
         } else {
             if (value) |v| {
-                try stdout.writeAll(v);
-                try stdout.writeAll("\n");
+                try stdout_writer_interface.writeAll(v);
+                try stdout_writer_interface.writeAll("\n");
             }
         }
-        return;
+    } else switch (output_format) {
+        .json => try writeJson(stdout_writer_interface, uri),
+        .markdown => try writeMarkdown(stdout_writer_interface, uri),
+        .terminal => try writeTerminal(std.heap.smp_allocator, stdout_writer_interface, uri),
     }
 
-    // JSON output
-    if (json_output) {
-        try stdout.writeAll("{\n");
-        try stdout.writeAll("  \"scheme\": ");
-        try writeJsonString(stdout, scheme);
+    try stdout_writer_interface.flush();
+}
 
-        try stdout.writeAll(",\n  \"user\": ");
-        if (user) |u| {
-            try writeJsonString(stdout, u);
-        } else {
-            try stdout.writeAll("null");
-        }
+fn writeTerminal(allocator: std.mem.Allocator, writer: *Writer, uri: std.Uri) !void {
+    var markdown_writer: Writer.Allocating = .init(allocator);
+    defer markdown_writer.deinit();
 
-        try stdout.writeAll(",\n  \"password\": ");
-        if (password) |p| {
-            try writeJsonString(stdout, p);
-        } else {
-            try stdout.writeAll("null");
-        }
+    try writeMarkdown(&markdown_writer.writer, uri);
+    const markdown = markdown_writer.written();
 
-        try stdout.writeAll(",\n  \"host\": ");
-        if (host) |h| {
-            try writeJsonString(stdout, h);
-        } else {
-            try stdout.writeAll("null");
-        }
+    var parser: zigdown.Parser = .init(allocator, .{});
+    defer parser.deinit();
+    try parser.parseMarkdown(markdown);
 
-        try stdout.writeAll(",\n  \"port\": ");
-        if (port) |p| {
-            try writeInt(stdout, u16, p);
-        } else {
-            try stdout.writeAll("null");
-        }
+    var renderer: zigdown.ConsoleRenderer = .init(writer, allocator, .{});
+    defer renderer.deinit();
 
-        try stdout.writeAll(",\n  \"path\": ");
-        if (path) |p| {
-            try writeJsonString(stdout, p);
-        } else {
-            try stdout.writeAll("null");
-        }
+    try renderer.renderBlock(parser.document);
+}
 
-        try stdout.writeAll(",\n  \"query\": ");
-        if (query) |q| {
-            try writeJsonString(stdout, q);
-        } else {
-            try stdout.writeAll("null");
-        }
+fn writeMarkdown(writer: *Writer, uri: std.Uri) !void {
+    try writer.writeAll("|Component|Value|\n");
+    try writer.writeAll("|-|-|\n");
 
-        try stdout.writeAll(",\n  \"fragment\": ");
-        if (fragment) |f| {
-            try writeJsonString(stdout, f);
-        } else {
-            try stdout.writeAll("null");
-        }
+    try writer.print("|scheme|{s}|\n", .{uri.scheme});
 
-        try stdout.writeAll("\n}\n");
-        return;
+    if (getComponentString(uri.user)) |u| {
+        try writer.print("|user|{s}|\n", .{u});
     }
 
-    // Plain text output
-    try stdout.writeAll("scheme: ");
-    try stdout.writeAll(scheme);
-    try stdout.writeAll("\n");
-
-    if (user) |u| {
-        try stdout.writeAll("user: ");
-        try stdout.writeAll(u);
-        try stdout.writeAll("\n");
+    if (getComponentString(uri.password)) |p| {
+        try writer.print("|password|{s}|\n", .{p});
     }
 
-    if (password) |p| {
-        try stdout.writeAll("password: ");
-        try stdout.writeAll(p);
-        try stdout.writeAll("\n");
+    if (getComponentString(uri.host)) |h| {
+        try writer.print("|host|{s}|\n", .{h});
     }
 
-    if (host) |h| {
-        try stdout.writeAll("host: ");
-        try stdout.writeAll(h);
-        try stdout.writeAll("\n");
+    if (uri.port) |p| {
+        try writer.print("|port|{d}|\n", .{p});
     }
 
-    if (port) |p| {
-        try stdout.writeAll("port: ");
-        try writeInt(stdout, u16, p);
-        try stdout.writeAll("\n");
+    if (getComponentString(uri.path)) |p| {
+        try writer.print("|path|{s}|\n", .{p});
     }
 
-    if (path) |p| {
-        if (p.len > 0) {
-            try stdout.writeAll("path: ");
-            try stdout.writeAll(p);
-            try stdout.writeAll("\n");
-        }
+    if (getComponentString(uri.query)) |q| {
+        try writer.print("|query|{s}|\n", .{q});
     }
 
-    if (query) |q| {
-        try stdout.writeAll("query: ");
-        try stdout.writeAll(q);
-        try stdout.writeAll("\n");
-    }
-
-    if (fragment) |f| {
-        try stdout.writeAll("fragment: ");
-        try stdout.writeAll(f);
-        try stdout.writeAll("\n");
+    if (getComponentString(uri.fragment)) |f| {
+        try writer.print("|fragment|{s}|\n", .{f});
     }
 }
+
+fn writeJson(writer: *Writer, uri: std.Uri) !void {
+    var json_writer: std.json.Stringify = .{ .writer = writer };
+    json_writer.options.whitespace = .indent_2;
+
+    try json_writer.beginObject();
+
+    try json_writer.objectField("scheme");
+    try json_writer.write(uri.scheme);
+
+    if (getComponentString(uri.user)) |u| {
+        try json_writer.objectField("user");
+        try json_writer.write(u);
+    }
+
+    if (getComponentString(uri.password)) |p| {
+        try json_writer.objectField("password");
+        try json_writer.write(p);
+    }
+
+    if (getComponentString(uri.host)) |h| {
+        try json_writer.objectField("host");
+        try json_writer.write(h);
+    }
+
+    if (uri.port) |p| {
+        try json_writer.objectField("port");
+        try json_writer.write(p);
+    }
+
+    if (getComponentString(uri.path)) |p| {
+        try json_writer.objectField("path");
+        try json_writer.write(p);
+    }
+
+    if (getComponentString(uri.query)) |q| {
+        try json_writer.objectField("query");
+        try json_writer.write(q);
+    }
+
+    if (getComponentString(uri.fragment)) |f| {
+        try json_writer.objectField("fragment");
+        try json_writer.write(f);
+    }
+
+    try json_writer.endObject();
+
+    try writer.writeByte('\n');
+}
+
+const std = @import("std");
+const File = std.fs.File;
+const Writer = std.Io.Writer;
+
+const zigdown = @import("zigdown");

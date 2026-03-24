@@ -1,6 +1,12 @@
 .{
     .name = .neutils,
     .version = "0.1.0",
+    .dependencies = .{
+        .zigdown = .{
+            .url = "git+https://github.com/JacobCrabill/zigdown.git#3998c71aa395e5c032530cfff0bb6edd30a24e63",
+            .hash = "zigdown-1.2.0-M06JTzTWFQBiZRYVMROtmuXp3ZWoB8XoFV-iGXaEzp6G",
+        },
+    },
     .fingerprint = 0x8cf1dad9242eeacb,
     .paths = .{
         "build.zig",

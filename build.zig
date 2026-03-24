@@ -21,13 +21,17 @@ pub fn build(b: *std.Build) !void {
 
         const path = b.fmt("src/tools/{s}/{s}", .{ tool_name, entry.basename });
 
+        const mod = b.createModule(.{
+            .root_source_file = b.path(path),
+            .target = target,
+            .optimize = optimize,
+        });
+
+        mod.addImport("zigdown", b.dependency("zigdown", .{}).module("zigdown"));
+
         const exe = b.addExecutable(.{
             .name = tool_name,
-            .root_module = b.createModule(.{
-                .root_source_file = b.path(path),
-                .target = target,
-                .optimize = optimize,
-            }),
+            .root_module = mod,
         });
 
         b.installArtifact(exe);
