@@ -68,6 +68,8 @@ fn printVersion(file: File) !void {
 }
 
 pub fn main() !void {
+    const gpa = std.heap.smp_allocator;
+
     const stdout = File.stdout();
     const stderr = File.stderr();
 
@@ -173,9 +175,9 @@ pub fn main() !void {
             }
         }
     } else switch (output_format) {
-        .json => try writeJson(stdout_writer_interface, uri),
-        .markdown => try writeMarkdown(std.heap.smp_allocator, stdout_writer_interface, uri),
-        .terminal => try writeTerminal(std.heap.smp_allocator, stdout_writer_interface, uri),
+        .json => try writeJson(gpa, stdout_writer_interface, uri),
+        .markdown => try writeMarkdown(gpa, stdout_writer_interface, uri),
+        .terminal => try writeTerminal(gpa, stdout_writer_interface, uri),
     }
 
     try stdout_writer_interface.flush();
@@ -258,7 +260,7 @@ fn writeMarkdown(allocator: std.mem.Allocator, writer: *Writer, uri: std.Uri) !v
     }
 }
 
-fn writeJson(writer: *Writer, uri: std.Uri) !void {
+fn writeJson(allocator: std.mem.Allocator, writer: *Writer, uri: std.Uri) !void {
     var json_writer: std.json.Stringify = .{ .writer = writer };
     json_writer.options.whitespace = .indent_2;
 
@@ -292,9 +294,20 @@ fn writeJson(writer: *Writer, uri: std.Uri) !void {
         try json_writer.write(p);
     }
 
-    if (getComponentString(uri.query)) |q| {
-        try json_writer.objectField("query");
-        try json_writer.write(q);
+    if (uri.query) |_| {
+        try json_writer.objectField("queryParams");
+        try json_writer.beginObject();
+
+        var query_params = try kewpie.parse(allocator, uri);
+        defer query_params.deinit();
+
+        var iter = query_params.iterator();
+        while (iter.next()) |kv| {
+            try json_writer.objectField(kv.key_ptr.*);
+            try json_writer.write(kv.value_ptr.*);
+        }
+
+        try json_writer.endObject();
     }
 
     if (getComponentString(uri.fragment)) |f| {
