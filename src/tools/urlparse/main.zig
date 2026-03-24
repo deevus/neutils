@@ -96,11 +96,11 @@ pub fn main() !void {
         } else if (std.mem.eql(u8, arg, "--version") or std.mem.eql(u8, arg, "-v")) {
             try printVersion(stdout);
             return;
-        } else if (std.mem.eql(u8, arg, "--json")) {
+        } else if (std.mem.eql(u8, arg, "--json") or std.mem.eql(u8, arg, "-j")) {
             output_format = .json;
-        } else if (std.mem.eql(u8, arg, "--markdown")) {
+        } else if (std.mem.eql(u8, arg, "--markdown") or std.mem.eql(u8, arg, "-m")) {
             output_format = .markdown;
-        } else if (std.mem.eql(u8, arg, "--field")) {
+        } else if (std.mem.eql(u8, arg, "--field") or std.mem.eql(u8, arg, "-f")) {
             const field_name = args.next() orelse {
                 try stderr_writer_interface.writeAll("error: --field requires a field name argument\n");
                 try stderr_writer_interface.flush();
