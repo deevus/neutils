@@ -46,12 +46,12 @@ fn printHelp(file: File) !void {
         \\Parse a URL and display its components.
         \\
         \\Options:
-        \\  --json           Output in JSON format
-        \\  --markdown       Output in markdown format
-        \\  --field <name>   Extract a single field (scheme, user, password,
-        \\                   host, port, path, query, fragment)
-        \\  --help           Show this help message
-        \\  --version        Show version information
+        \\  --json|-j          Output in JSON format
+        \\  --markdown|-m      Output in markdown format
+        \\  --field|-f <name>  Extract a single field (scheme, user, password,
+        \\                     host, port, path, query, fragment)
+        \\  --help|-h          Show this help message
+        \\  --version|-v       Show version information
         \\
         \\Examples:
         \\  urlparse "https://example.com/path?query=value#fragment"
