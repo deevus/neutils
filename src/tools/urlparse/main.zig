@@ -207,7 +207,11 @@ fn writeTerminal(allocator: std.mem.Allocator, writer: *Writer, uri: std.Uri) !v
     defer parser.deinit();
     try parser.parseMarkdown(markdown);
 
-    var renderer: zigdown.ConsoleRenderer = .init(writer, allocator, .{});
+    const terminal_size: zigdown.gfx.TermSize = zigdown.gfx.getTerminalSize() catch .{};
+
+    var renderer: zigdown.ConsoleRenderer = .init(writer, allocator, .{
+        .termsize = terminal_size,
+    });
     defer renderer.deinit();
 
     try renderer.renderBlock(parser.document);
