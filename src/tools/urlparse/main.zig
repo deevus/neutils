@@ -47,6 +47,7 @@ fn printHelp(file: File) !void {
         \\
         \\Options:
         \\  --json           Output in JSON format
+        \\  --markdown       Output in markdown format
         \\  --field <name>   Extract a single field (scheme, user, password,
         \\                   host, port, path, query, fragment)
         \\  --help           Show this help message
