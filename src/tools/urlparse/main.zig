@@ -295,6 +295,11 @@ fn writeJson(allocator: std.mem.Allocator, writer: *Writer, uri: std.Uri) !void 
         try json_writer.write(p);
     }
 
+    if (getComponentString(uri.query)) |q| {
+        try json_writer.objectField("query");
+        try json_writer.write(q);
+    }
+
     if (uri.query) |_| {
         try json_writer.objectField("queryParams");
         try json_writer.beginObject();
