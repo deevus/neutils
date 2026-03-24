@@ -32,8 +32,8 @@ pub fn build(b: *std.Build) !void {
         });
 
         mod.addOptions("build_options", build_options);
-        mod.addImport("zigdown", b.dependency("zigdown", .{}).module("zigdown"));
-        mod.addImport("kewpie", b.dependency("kewpie", .{}).module("kewpie"));
+        mod.addImport("zigdown", b.dependency("zigdown", .{ .target = target, .optimize = optimize }).module("zigdown"));
+        mod.addImport("kewpie", b.dependency("kewpie", .{ .target = target, .optimize = optimize }).module("kewpie"));
 
         const exe = b.addExecutable(.{
             .name = tool_name,
