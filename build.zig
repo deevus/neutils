@@ -45,6 +45,15 @@ pub fn build(b: *std.Build) !void {
 
         const build_step = b.step(tool_name, b.fmt("Build {s}", .{tool_name}));
         build_step.dependOn(&b.addInstallArtifact(exe, .{}).step);
+
+        const run_cmd = b.addRunArtifact(exe);
+        run_cmd.step.dependOn(b.getInstallStep());
+        if (b.args) |args| {
+            run_cmd.addArgs(args);
+        }
+
+        const run_step = b.step(b.fmt("run-{s}", .{tool_name}), b.fmt("Run {s}", .{tool_name}));
+        run_step.dependOn(&run_cmd.step);
     }
 }
 
