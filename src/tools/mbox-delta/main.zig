@@ -29,10 +29,15 @@ const MboxIndex = struct {
         return true;
     }
 
+    const ExtractResult = struct {
+        msg_id: []const u8,
+        consumed: usize,
+    };
+
     /// Extract Message-ID value from a header block.
-    /// Searches buffered data starting from the current position for "Message-ID:" header.
-    /// Returns a dupe'd string, or null if not found before end of headers.
-    fn extractMessageId(self: *MboxIndex, allocator: Allocator, reader: *Reader) !?[]const u8 {
+    /// Returns the Message-ID and total bytes consumed from the reader.
+    fn extractMessageId(self: *MboxIndex, allocator: Allocator, reader: *Reader) !?ExtractResult {
+        var consumed: usize = 0;
         while (true) {
             const buf = reader.buffered();
             if (buf.len == 0) {
@@ -42,21 +47,22 @@ const MboxIndex = struct {
 
             // Check for end of headers (blank line)
             if (std.mem.indexOf(u8, buf, "\n\n")) |blank_pos| {
-                // Search only within headers
                 const headers = buf[0..blank_pos];
                 if (self.findMessageIdInSlice(allocator, headers)) |msg_id| {
-                    return msg_id;
+                    return .{ .msg_id = msg_id, .consumed = consumed };
                 }
                 return null;
             }
 
             // Search what we have so far
             if (self.findMessageIdInSlice(allocator, buf)) |msg_id| {
-                return msg_id;
+                return .{ .msg_id = msg_id, .consumed = consumed };
             }
 
             // Haven't found end of headers yet — retain tail for partial match, fill more
-            reader.toss(buf.len -| (msg_id_header.len + 256));
+            const toss_len = buf.len -| (msg_id_header.len + 256);
+            reader.toss(toss_len);
+            consumed += toss_len;
             if (!try fillMore(reader)) return null;
         }
     }
@@ -89,7 +95,10 @@ const MboxIndex = struct {
             if (std.mem.indexOfScalar(u8, initial, '\n')) |nl| {
                 reader.toss(nl + 1);
                 file_offset += nl + 1;
-                current_msg_id = try self.extractMessageId(allocator, reader);
+                if (try self.extractMessageId(allocator, reader)) |result| {
+                    current_msg_id = result.msg_id;
+                    file_offset += result.consumed;
+                }
             }
         }
 
@@ -129,7 +138,11 @@ const MboxIndex = struct {
                     file_offset += rest.len;
                     if (!try fillMore(reader)) break;
                 }
-                current_msg_id = try self.extractMessageId(allocator, reader);
+                current_msg_id = null;
+                if (try self.extractMessageId(allocator, reader)) |result| {
+                    current_msg_id = result.msg_id;
+                    file_offset += result.consumed;
+                }
             } else {
                 // No boundary found — retain tail for partial match
                 const toss_len = buf.len -| (boundary.len - 1);
@@ -149,6 +162,28 @@ const MboxIndex = struct {
         }
     }
 };
+
+fn writeDelta(base: MboxIndex, new: MboxIndex, src_file: std.fs.File, writer: *Writer) !usize {
+    var count: usize = 0;
+    var iter = new.messages.iterator();
+    while (iter.next()) |entry| {
+        if (!base.messages.contains(entry.key_ptr.*)) {
+            const loc = entry.value_ptr.*;
+            const len = loc.end - loc.start;
+
+            try src_file.seekTo(loc.start);
+            var src_buf: [65536]u8 = undefined;
+            var src_reader = src_file.reader(&src_buf);
+            try src_reader.interface.streamExact64(writer, len);
+            try writer.writeByte('\n');
+
+            count += 1;
+        }
+    }
+
+    try writer.flush();
+    return count;
+}
 
 fn mboxDelta() !void {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
@@ -173,38 +208,16 @@ fn mboxDelta() !void {
     defer new_index.deinit(allocator);
     try new_index.load(allocator, &new_reader.interface);
 
-    // Write messages from new that aren't in base to output file
-    const output_file = try std.fs.cwd().createFile(cli.config.output, .{});
-    defer output_file.close();
-
-    var out_buf: [65536]u8 = undefined;
-    var out_writer = output_file.writer(&out_buf);
-
-    // Re-open new file for reading message content by offset
+    // Re-open new file for seeking to message offsets
     const src_file = try std.fs.cwd().openFile(cli.config.new_mbox, .{});
     defer src_file.close();
 
-    var new_count: usize = 0;
-    var iter = new_index.messages.iterator();
-    while (iter.next()) |entry| {
-        if (!base_index.messages.contains(entry.key_ptr.*)) {
-            const loc = entry.value_ptr.*;
-            const len = loc.end - loc.start;
+    const output_file = try std.fs.cwd().createFile(cli.config.output, .{});
+    defer output_file.close();
+    var out_buf: [65536]u8 = undefined;
+    var out_writer = output_file.writer(&out_buf);
 
-            // Seek to message start and copy to output
-            try src_file.seekTo(loc.start);
-            var src_buf: [65536]u8 = undefined;
-            var src_reader = src_file.reader(&src_buf);
-            try src_reader.interface.streamExact64(&out_writer.interface, len);
-
-            // Ensure newline separator between messages
-            try out_writer.interface.writeByte('\n');
-
-            new_count += 1;
-        }
-    }
-
-    try out_writer.interface.flush();
+    const new_count = try writeDelta(base_index, new_index, src_file, &out_writer.interface);
 
     const stderr = std.fs.File.stderr();
     var stderr_buf: [256]u8 = undefined;
@@ -216,5 +229,6 @@ fn mboxDelta() !void {
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Reader = std.Io.Reader;
+const Writer = std.Io.Writer;
 
 const cli = @import("cli.zig");

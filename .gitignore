@@ -6,3 +6,4 @@ zig-cache/
 # Plans (local development only)
 docs/plans/
 .DS_Store
+diff.mbox
