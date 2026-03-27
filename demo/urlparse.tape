@@ -20,7 +20,7 @@ Enter
 Sleep 3s
 
 # JSON output
-Type "urlparse --json 'https://example.com/api?page=2&sort=name'"
+Type "urlparse --output-format json 'https://example.com/api?page=2&sort=name'"
 Sleep 0.5s
 Enter
 Sleep 3s
