@@ -10,7 +10,7 @@ pub fn execute(allocator: Allocator, exec_fn: ExecFn) !void {
     const app: App = .{
         .version = build_options.version,
         .command = Command{
-            .name = "mbox-delta",
+            .name = "mbox-diff",
             .options = try runner.allocOptions(
                 &[_]Option{
                     .{
