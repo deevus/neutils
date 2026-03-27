@@ -1,68 +1,27 @@
-const build_options = @import("build_options");
-const version = build_options.version;
-
-const OutputFormat = enum {
+const Output = enum {
     json,
     markdown,
     terminal,
     field,
 };
 
-const Field = enum {
-    scheme,
-    user,
-    password,
-    host,
-    port,
-    path,
-    query,
-    fragment,
-
-    fn fromString(s: []const u8) ?Field {
-        return std.meta.stringToEnum(Field, s);
-    }
-};
-
 fn getComponentString(component: ?std.Uri.Component) ?[]const u8 {
     const comp = component orelse return null;
-    return switch (comp) {
+    const str = switch (comp) {
         .raw => |raw| raw,
         .percent_encoded => |encoded| encoded,
     };
-}
 
-fn printHelp(writer: *Writer) !void {
-    try writer.writeAll(
-        \\Usage: urlparse [OPTIONS] <URL>
-        \\
-        \\Parse a URL and display its components.
-        \\
-        \\Options:
-        \\  --json|-j          Output in JSON format
-        \\  --markdown|-m      Output in markdown format
-        \\  --field|-f <name>  Extract a single field (scheme, user, password,
-        \\                     host, port, path, query, fragment)
-        \\  --help|-h          Show this help message
-        \\  --version|-v       Show version information
-        \\
-        \\Examples:
-        \\  urlparse "https://example.com/path?query=value#fragment"
-        \\  urlparse --json "https://user:pass@example.com:8080/path"
-        \\  urlparse --markdown "https://user:pass@example.com:8080/path"
-        \\  urlparse --field host "https://example.com/path"
-        \\
-    );
-    try writer.flush();
-}
+    if (str.len == 0) return null;
 
-fn printVersion(writer: *Writer) !void {
-    try writer.writeAll("urlparse ");
-    try writer.writeAll(version);
-    try writer.writeAll("\n");
-    try writer.flush();
+    return str;
 }
 
 pub fn main() !void {
+    try cli.execute(std.heap.page_allocator, urlparse);
+}
+
+fn urlparse() !void {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
     const gpa = arena.allocator();
@@ -78,70 +37,13 @@ pub fn main() !void {
     var stderr_writer = stderr.writer(&stderr_buf);
     var stderr_writer_interface = &stderr_writer.interface;
 
-    var args = try std.process.argsWithAllocator(gpa);
-    defer args.deinit();
-    _ = args.skip(); // Skip program name
-
-    var output_format: OutputFormat = if (stdout.isTty()) .terminal else .markdown;
-    var field: ?Field = null;
-    var url: ?[]const u8 = null;
-
-    while (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-            try printHelp(stdout_writer_interface);
-            return;
-        } else if (std.mem.eql(u8, arg, "--version") or std.mem.eql(u8, arg, "-v")) {
-            try printVersion(stdout_writer_interface);
-            return;
-        } else if (std.mem.eql(u8, arg, "--json") or std.mem.eql(u8, arg, "-j")) {
-            output_format = .json;
-        } else if (std.mem.eql(u8, arg, "--markdown") or std.mem.eql(u8, arg, "-m")) {
-            output_format = .markdown;
-        } else if (std.mem.eql(u8, arg, "--field") or std.mem.eql(u8, arg, "-f")) {
-            output_format = .field;
-
-            const field_name = args.next() orelse {
-                try stderr_writer_interface.writeAll("error: --field requires a field name argument\n");
-                try stderr_writer_interface.flush();
-                std.process.exit(1);
-            };
-
-            field = Field.fromString(field_name) orelse {
-                try stderr_writer_interface.writeAll("error: unknown field '");
-                try stderr_writer_interface.writeAll(field_name);
-                try stderr_writer_interface.writeAll("'\n");
-                try stderr_writer_interface.writeAll("valid fields: scheme, user, password, host, port, path, query, fragment\n");
-                try stderr_writer_interface.flush();
-                std.process.exit(1);
-            };
-        } else if (std.mem.startsWith(u8, arg, "-")) {
-            try stderr_writer_interface.writeAll("error: unknown option '");
-            try stderr_writer_interface.writeAll(arg);
-            try stderr_writer_interface.writeAll("'\n");
-            try stderr_writer_interface.flush();
-            std.process.exit(1);
-        } else {
-            if (url) |_| {
-                try stderr_writer_interface.writeAll("error: multiple URLs provided\n");
-                try stderr_writer_interface.writeAll("usage: urlparse [OPTIONS] <URL>\n");
-                try stderr_writer_interface.writeAll("try 'urlparse --help' for more information\n");
-                try stderr_writer_interface.flush();
-                std.process.exit(1);
-            }
-
-            url = arg;
-        }
-    }
-
-    const url_str = url orelse {
-        try stderr_writer_interface.writeAll("error: no URL provided\n");
-        try stderr_writer_interface.writeAll("usage: urlparse [OPTIONS] <URL>\n");
-        try stderr_writer_interface.writeAll("try 'urlparse --help' for more information\n");
+    if (cli.config.output_format != null and cli.config.field != null) {
+        try stderr_writer_interface.writeAll("error: --output-format and --field cannot be used together\n");
         try stderr_writer_interface.flush();
         std.process.exit(1);
-    };
+    }
 
-    const uri = std.Uri.parse(url_str) catch |err| {
+    const uri = std.Uri.parse(cli.config.url) catch |err| {
         try stderr_writer_interface.writeAll("error: failed to parse URL: ");
         try stderr_writer_interface.writeAll(@errorName(err));
         try stderr_writer_interface.writeAll("\n");
@@ -149,12 +51,29 @@ pub fn main() !void {
         std.process.exit(1);
     };
 
-    switch (output_format) {
+    const output: Output = blk: {
+        // output format specified through argument
+        if (cli.config.output_format) |f| switch (f) {
+            .json => break :blk .json,
+            .markdown => break :blk .markdown,
+        };
+
+        // field specified through argument
+        if (cli.config.field != null) break :blk .field;
+
+        // default to terminal output if stdout is a tty
+        if (stdout.isTty()) break :blk .terminal;
+
+        // default to markdown output otherwise
+        break :blk .markdown;
+    };
+
+    switch (output) {
         .json => try writeJson(gpa, stdout_writer_interface, uri),
         .markdown => try writeMarkdown(gpa, stdout_writer_interface, uri),
         .terminal => try writeTerminal(gpa, stdout_writer_interface, uri),
         .field => {
-            switch (field.?) {
+            switch (cli.config.field.?) {
                 .scheme => try stdout_writer_interface.print("{s}", .{uri.scheme}),
                 .port => if (uri.port) |p| {
                     try stdout_writer_interface.print("{d}", .{p});
@@ -321,3 +240,9 @@ const Writer = std.Io.Writer;
 
 const zigdown = @import("zigdown");
 const kewpie = @import("kewpie");
+
+const cli = @import("cli.zig");
+
+const Config = @import("Config.zig");
+const OutputFormat = Config.OutputFormat;
+const Field = Config.Field;

@@ -32,6 +32,7 @@ pub fn build(b: *std.Build) !void {
         });
 
         mod.addOptions("build_options", build_options);
+        mod.addImport("cli", b.dependency("cli", .{ .target = target, .optimize = optimize }).module("cli"));
         mod.addImport("zigdown", b.dependency("zigdown", .{ .target = target, .optimize = optimize }).module("zigdown"));
         mod.addImport("kewpie", b.dependency("kewpie", .{ .target = target, .optimize = optimize }).module("kewpie"));
 

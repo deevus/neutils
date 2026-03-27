@@ -10,6 +10,10 @@
             .url = "git+https://github.com/weskoerber/kewpie#001fe8addccbf3ce171b31c6281cf82f2c487356",
             .hash = "kewpie-0.1.0-PG0ir0IzAABsQr2dPBazNu4Okyt7MX2b2cjbVGP76NkH",
         },
+        .cli = .{
+            .url = "https://github.com/sam701/zig-cli/archive/cb44aade25a3c1eddd8b6f990b50c2189442c1e2.tar.gz",
+            .hash = "cli-0.10.0-2eKe_5kEAQBeHqKxUHNTGnETzu81rqKWwT1WPt1jXBt0",
+        },
     },
     .fingerprint = 0x8cf1dad9242eeacb,
     .paths = .{
