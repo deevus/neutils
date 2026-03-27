@@ -8,6 +8,8 @@ pub fn build(b: *std.Build) !void {
     const build_options = b.addOptions();
     build_options.addOption([]const u8, "version", getVersion(optimize));
 
+    const test_all_step = b.step("test", "Run all tool tests");
+
     var tools_dir = std.fs.cwd().openDir("src/tools", .{ .iterate = true }) catch {
         return;
     };
@@ -62,6 +64,8 @@ pub fn build(b: *std.Build) !void {
         const test_run = b.addRunArtifact(unit_tests);
         const test_step = b.step(b.fmt("test-{s}", .{tool_name}), b.fmt("Test {s}", .{tool_name}));
         test_step.dependOn(&test_run.step);
+
+        test_all_step.dependOn(test_step);
     }
 }
 
