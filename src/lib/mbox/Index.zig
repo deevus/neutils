@@ -64,6 +64,44 @@ pub fn deinit(self: *Self, allocator: Allocator) void {
     self.message_ids.deinit(allocator);
 }
 
+pub fn read(allocator: Allocator, reader: *std.io.Reader) !Self {
+    const header = try reader.takeArray(8);
+    if (!std.mem.eql(u8, header, &file_header)) return error.InvalidFormat;
+
+    const version = try reader.takeInt(u64, .little);
+    if (version != file_version) return error.UnsupportedVersion;
+
+    const ids_chunk_type = try reader.takeInt(u64, .little);
+    if (ids_chunk_type != chunk_type_message_ids) return error.InvalidFormat;
+    const ids_blob_len = try reader.takeInt(u64, .little);
+
+    var message_ids: std.ArrayListUnmanaged(u8) = try .initCapacity(allocator, @intCast(ids_blob_len));
+    errdefer message_ids.deinit(allocator);
+    try reader.readSliceAll(message_ids.items);
+
+    const locs_chunk_type = try reader.takeInt(u64, .little);
+    if (locs_chunk_type != chunk_type_locations) return error.InvalidFormat;
+    const entry_count = try reader.takeInt(u64, .little);
+
+    var locations: std.StringHashMapUnmanaged(Location) = .empty;
+    errdefer locations.deinit(allocator);
+    try locations.ensureTotalCapacity(allocator, @intCast(entry_count));
+
+    var iter: MessageIdIterator = .init(&message_ids);
+    var i: u64 = 0;
+    while (i < entry_count) : (i += 1) {
+        const start = try reader.takeInt(u64, .little);
+        const end = try reader.takeInt(u64, .little);
+        const id = iter.next() orelse return error.InvalidFormat;
+        locations.putAssumeCapacityNoClobber(id, .{ .start = start, .end = end });
+    }
+
+    return .{
+        .message_ids = message_ids,
+        .locations = locations,
+    };
+}
+
 pub fn write(self: Self, writer: *std.io.Writer) !void {
     try writer.writeAll(&file_header);
     try writer.writeInt(u64, file_version, .little);
@@ -212,3 +250,44 @@ const File = std.fs.File;
 const Writer = std.io.Writer;
 
 const zigfsm = @import("zigfsm");
+
+test "read roundtrips with write" {
+    const allocator = std.testing.allocator;
+
+    var idx: Self = .{};
+    defer idx.deinit(allocator);
+
+    // Build message_ids blob: two null-terminated IDs
+    for ("<msg1@example.com>\x00<msg2@example.com>\x00") |b| {
+        try idx.message_ids.append(allocator, b);
+    }
+
+    try idx.locations.put(allocator, "<msg1@example.com>", .{ .start = 0, .end = 100 });
+    try idx.locations.put(allocator, "<msg2@example.com>", .{ .start = 100, .end = 250 });
+
+    // Write to buffer
+    var buf: [4096]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buf);
+    var writer = fbs.writer().any();
+    try idx.write(&writer);
+
+    // Read back
+    const written = fbs.getWritten();
+    var reader = std.io.Reader.fixed(written);
+    var restored = try Self.read(allocator, &reader);
+    defer restored.deinit(allocator);
+
+    // Verify message IDs blob matches
+    try std.testing.expectEqualSlices(u8, idx.message_ids.items, restored.message_ids.items);
+
+    // Verify locations match
+    try std.testing.expectEqual(idx.locations.count(), restored.locations.count());
+
+    const loc1 = restored.locations.get("<msg1@example.com>").?;
+    try std.testing.expectEqual(@as(u64, 0), loc1.start);
+    try std.testing.expectEqual(@as(u64, 100), loc1.end);
+
+    const loc2 = restored.locations.get("<msg2@example.com>").?;
+    try std.testing.expectEqual(@as(u64, 100), loc2.start);
+    try std.testing.expectEqual(@as(u64, 250), loc2.end);
+}
