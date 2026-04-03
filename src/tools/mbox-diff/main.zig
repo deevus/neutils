@@ -2,6 +2,22 @@ pub fn main() !void {
     try cli.execute(std.heap.page_allocator, mboxDelta);
 }
 
+const State = enum {
+    start,
+    from,
+    headers,
+    body,
+};
+
+const Event = enum {
+    from_line,
+    header_line,
+    blank_line,
+    body_line,
+    other_line,
+    eof,
+};
+
 const MboxIndex = struct {
     const boundary = "\nFrom ";
     const msg_id_header = "Message-ID:";
@@ -11,14 +27,12 @@ const MboxIndex = struct {
         end: u64,
     };
 
+    message_ids: std.ArrayListUnmanaged(u8) = .empty,
     messages: std.StringHashMapUnmanaged(Location) = .empty,
 
-    fn deinit(self: *MboxIndex, allocator: Allocator) void {
-        var iter = self.messages.keyIterator();
-        while (iter.next()) |key| {
-            allocator.free(key.*);
-        }
+    pub fn deinit(self: *MboxIndex, allocator: Allocator) void {
         self.messages.deinit(allocator);
+        self.message_ids.deinit(allocator);
     }
 
     fn fillMore(reader: *Reader) !bool {
@@ -30,7 +44,7 @@ const MboxIndex = struct {
     }
 
     /// Extract Message-ID value from a header block.
-    fn extractMessageId(self: *MboxIndex, allocator: Allocator, reader: *Reader) !?[]const u8 {
+    pub fn extractMessageId(allocator: Allocator, reader: *Reader) !?[]const u8 {
         while (true) {
             const buf = reader.buffered();
             if (buf.len == 0) {
@@ -41,11 +55,11 @@ const MboxIndex = struct {
             // Check for end of headers (blank line)
             if (std.mem.indexOf(u8, buf, "\n\n")) |blank_pos| {
                 const headers = buf[0..blank_pos];
-                return self.findMessageIdInSlice(allocator, headers);
+                return findMessageIdInSlice(allocator, headers);
             }
 
             // Search what we have so far
-            if (self.findMessageIdInSlice(allocator, buf)) |msg_id| {
+            if (findMessageIdInSlice(allocator, buf)) |msg_id| {
                 return msg_id;
             }
 
@@ -55,7 +69,7 @@ const MboxIndex = struct {
         }
     }
 
-    fn findMessageIdInSlice(_: *MboxIndex, allocator: Allocator, slice: []const u8) ?[]const u8 {
+    pub fn findMessageIdInSlice(allocator: Allocator, slice: []const u8) ?[]const u8 {
         const header_start = std.mem.indexOf(u8, slice, msg_id_header) orelse return null;
         const value_start = header_start + msg_id_header.len;
         const rest = slice[value_start..];
@@ -74,73 +88,114 @@ const MboxIndex = struct {
         return (file.getPos() catch 0) - reader.bufferedLen();
     }
 
-    pub fn load(self: *MboxIndex, allocator: Allocator, file: File) !void {
-        var read_buf: [65536]u8 = undefined;
+    pub fn load(allocator: Allocator, file: File) !MboxIndex {
+        var read_buf: [65535]u8 = undefined;
         var stream = file.readerStreaming(&read_buf);
         const reader = &stream.interface;
 
-        var msg_start: ?u64 = null;
-        var current_msg_id: ?[]const u8 = null;
+        var fsm = zigfsm.StateMachine(State, Event, .start).init();
 
-        // Handle first message (mbox files start with "From " without a leading newline)
-        if (!try fillMore(reader)) return;
-        const initial = reader.buffered();
-        if (std.mem.startsWith(u8, initial, boundary[1..])) {
-            msg_start = 0;
-            if (std.mem.indexOfScalar(u8, initial, '\n')) |nl| {
-                reader.toss(nl + 1);
-                current_msg_id = try self.extractMessageId(allocator, reader);
-            }
-        }
+        try fsm.addEventAndTransition(.from_line, .start, .from);
 
-        while (true) {
-            const buf = reader.buffered();
-            if (buf.len == 0) {
-                if (!try fillMore(reader)) break;
-                continue;
-            }
+        try fsm.addEventAndTransition(.other_line, .from, .headers);
 
-            if (std.mem.indexOf(u8, buf, boundary)) |pos| {
-                // End of previous message is at current position + offset to the \n
-                const msg_end = filePos(file, reader) + pos;
+        try fsm.addEventAndTransition(.other_line, .headers, .headers);
+        try fsm.addEventAndTransition(.blank_line, .headers, .body);
+        try fsm.addEventAndTransition(.from_line, .headers, .from);
 
-                if (current_msg_id) |msg_id| {
-                    if (msg_start) |start| {
-                        try self.messages.put(allocator, msg_id, .{ .start = start, .end = msg_end });
-                    }
-                }
+        try fsm.addEventAndTransition(.other_line, .body, .body);
+        try fsm.addEventAndTransition(.blank_line, .body, .body);
+        try fsm.addEventAndTransition(.from_line, .body, .from);
 
-                // Advance past the \n before "From "
-                reader.toss(pos + 1);
+        var count: usize = 0;
+        var start: usize = 0;
+        var offset: usize = 0;
 
-                // msg_start includes the "From " envelope line
-                msg_start = filePos(file, reader);
+        var locations: std.ArrayListUnmanaged(Location) = .empty;
+        var message_ids: std.ArrayListUnmanaged(u8) = .empty;
 
-                // Skip past the envelope line for header extraction
-                while (true) {
-                    const rest = reader.buffered();
-                    if (std.mem.indexOfScalar(u8, rest, '\n')) |nl| {
-                        reader.toss(nl + 1);
-                        break;
-                    }
-                    reader.toss(rest.len);
-                    if (!try fillMore(reader)) break;
-                }
-                current_msg_id = try self.extractMessageId(allocator, reader);
+        var current_hash: std.crypto.hash.sha2.Sha256 = .init(.{});
+        var current_message_id: ?[]const u8 = null;
+        var done = false;
+
+        while (!done) {
+            const line = reader.takeDelimiterInclusive('\n') catch |err| switch (err) {
+                error.EndOfStream => blk: {
+                    done = true;
+                    break :blk reader.buffered()[reader.seek..reader.end];
+                },
+                else => return err,
+            };
+
+            if (std.mem.startsWith(u8, line, boundary[1..])) {
+                _ = try fsm.do(.from_line);
+            } else if (std.mem.trim(u8, line, &std.ascii.whitespace).len == 0) {
+                _ = try fsm.do(.blank_line);
             } else {
-                // No boundary found — retain tail for partial match
-                reader.toss(buf.len -| (boundary.len - 1));
-                if (!try fillMore(reader)) break;
+                _ = try fsm.do(.other_line);
             }
+
+            if (done or fsm.currentState() == .from) {
+                if (count > 0) {
+                    try locations.append(allocator, .{
+                        .start = start,
+                        .end = offset,
+                    });
+
+                    if (done and std.mem.trim(u8, line, &std.ascii.whitespace).len > 0) {
+                        current_hash.update(line);
+                    }
+
+                    const message_id: []const u8 = if (current_message_id) |id| id else blk: {
+                        const hash_bytes = current_hash.finalResult();
+                        break :blk &std.fmt.bytesToHex(&hash_bytes, .lower);
+                    };
+
+                    try message_ids.ensureUnusedCapacity(allocator, message_id.len + 1);
+                    message_ids.appendSliceAssumeCapacity(message_id);
+                    message_ids.appendAssumeCapacity(0);
+                }
+
+                start = offset;
+                count += 1;
+                current_hash = .init(.{});
+                current_message_id = null;
+            } else if (std.mem.trim(u8, line, &std.ascii.whitespace).len > 0) {
+                current_hash.update(line);
+
+                if (std.ascii.startsWithIgnoreCase(line, msg_id_header)) {
+                    const raw = std.mem.trim(u8, line[msg_id_header.len..], &std.ascii.whitespace);
+                    if (raw.len > 0) {
+                        current_message_id = try allocator.dupe(u8, raw);
+                    }
+                }
+            }
+
+            offset += line.len;
         }
 
-        // Store the last message
-        if (current_msg_id) |msg_id| {
-            if (msg_start) |start| {
-                const msg_end = filePos(file, reader) + reader.bufferedLen();
-                try self.messages.put(allocator, msg_id, .{ .start = start, .end = msg_end });
+        var result: MboxIndex = .{};
+        result.message_ids = message_ids;
+
+        var this_sentinel: usize = 0;
+        var last_sentinel: usize = 0;
+
+        for (locations.items) |location| {
+            // find the next sentinel
+            this_sentinel = std.mem.indexOfScalarPos(u8, message_ids.items, last_sentinel, 0).?;
+
+            // extract the message id
+            const message_id = message_ids.items[last_sentinel..this_sentinel];
+
+            // put the location into the map
+            if (!result.messages.contains(message_id)) {
+                try result.messages.putNoClobber(allocator, message_id, location);
             }
+
+            last_sentinel = this_sentinel + 1;
         }
+
+        return result;
     }
 };
 
@@ -177,13 +232,11 @@ fn mboxDelta() !void {
     const new_file = try std.fs.cwd().openFile(cli.config.new_mbox, .{});
     defer new_file.close();
 
-    var base_index: MboxIndex = .{};
+    var base_index: MboxIndex = try .load(allocator, base_file);
     defer base_index.deinit(allocator);
-    try base_index.load(allocator, base_file);
 
-    var new_index: MboxIndex = .{};
+    var new_index: MboxIndex = try .load(allocator, new_file);
     defer new_index.deinit(allocator);
-    try new_index.load(allocator, new_file);
 
     // Re-open new file for seeking to message offsets
     const src_file = try std.fs.cwd().openFile(cli.config.new_mbox, .{});
@@ -210,6 +263,7 @@ const Reader = std.Io.Reader;
 const Writer = std.Io.Writer;
 
 const cli = @import("cli.zig");
+const zigfsm = @import("zigfsm");
 
 const testing = std.testing;
 
