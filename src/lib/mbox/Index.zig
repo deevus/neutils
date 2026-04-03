@@ -142,6 +142,5 @@ pub fn load(allocator: Allocator, file: File) !Self {
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const File = std.fs.File;
-const Reader = std.Io.Reader;
 
 const zigfsm = @import("zigfsm");
