@@ -7,28 +7,22 @@ const Dependency = union(enum) {
         name: []const u8,
         module: []const u8,
     },
+
+    const cli: Dependency = .{ .exact = "cli" };
+    const kewpie: Dependency = .{ .exact = "kewpie" };
+    const zigdown: Dependency = .{ .exact = "zigdown" };
 };
+
+const default_deps: []const Dependency = &.{.cli};
 
 const dependency_map: std.StaticStringMap([]const Dependency) = .initComptime(.{
     .{
-        "mbox-diff",
-        &[_]Dependency{
-            .{ .exact = "cli" },
-        },
-    },
-    .{
-        "urlencode",
-        &[_]Dependency{
-            .{ .exact = "cli" },
-        },
-    },
-    .{
         "urlparse",
-        &[_]Dependency{
-            .{ .exact = "cli" },
-            .{ .exact = "kewpie" },
-            .{ .exact = "zigdown" },
-        },
+        default_deps ++
+            &[_]Dependency{
+                .kewpie,
+                .zigdown,
+            },
     },
 });
 
@@ -66,16 +60,14 @@ pub fn build(b: *std.Build) !void {
 
         mod.addOptions("build_options", build_options);
 
-        if (dependency_map.get(tool_name)) |deps| {
-            for (deps) |dep| {
-                switch (dep) {
-                    .exact => |name| {
-                        mod.addImport(name, b.dependency(name, .{ .target = target, .optimize = optimize }).module(name));
-                    },
-                    .module => |m| {
-                        mod.addImport(m.name, b.dependency(m.name, .{ .target = target, .optimize = optimize }).module(m.module));
-                    },
-                }
+        for (dependency_map.get(tool_name) orelse default_deps) |dep| {
+            switch (dep) {
+                .exact => |name| {
+                    mod.addImport(name, b.dependency(name, .{ .target = target, .optimize = optimize }).module(name));
+                },
+                .module => |m| {
+                    mod.addImport(m.name, b.dependency(m.name, .{ .target = target, .optimize = optimize }).module(m.module));
+                },
             }
         }
 
