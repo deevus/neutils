@@ -1,6 +1,37 @@
 const std = @import("std");
 const BuildZigZon = @import("build.zig.zon");
 
+const Dependency = union(enum) {
+    exact: []const u8,
+    module: struct {
+        name: []const u8,
+        module: []const u8,
+    },
+};
+
+const dependency_map: std.StaticStringMap([]const Dependency) = .initComptime(.{
+    .{
+        "mbox-diff",
+        &[_]Dependency{
+            .{ .exact = "cli" },
+        },
+    },
+    .{
+        "urlencode",
+        &[_]Dependency{
+            .{ .exact = "cli" },
+        },
+    },
+    .{
+        "urlparse",
+        &[_]Dependency{
+            .{ .exact = "cli" },
+            .{ .exact = "kewpie" },
+            .{ .exact = "zigdown" },
+        },
+    },
+});
+
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -34,9 +65,19 @@ pub fn build(b: *std.Build) !void {
         });
 
         mod.addOptions("build_options", build_options);
-        mod.addImport("cli", b.dependency("cli", .{ .target = target, .optimize = optimize }).module("cli"));
-        mod.addImport("zigdown", b.dependency("zigdown", .{ .target = target, .optimize = optimize }).module("zigdown"));
-        mod.addImport("kewpie", b.dependency("kewpie", .{ .target = target, .optimize = optimize }).module("kewpie"));
+
+        if (dependency_map.get(tool_name)) |deps| {
+            for (deps) |dep| {
+                switch (dep) {
+                    .exact => |name| {
+                        mod.addImport(name, b.dependency(name, .{ .target = target, .optimize = optimize }).module(name));
+                    },
+                    .module => |m| {
+                        mod.addImport(m.name, b.dependency(m.name, .{ .target = target, .optimize = optimize }).module(m.module));
+                    },
+                }
+            }
+        }
 
         const exe = b.addExecutable(.{
             .name = tool_name,
