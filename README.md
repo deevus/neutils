@@ -36,6 +36,8 @@ Download from [GitHub Releases](https://github.com/deevus/neutils/releases) for 
 | [`urlparse`](src/tools/urlparse/README.md) | Parse and display URL components |
 | [`urlencode`](src/tools/urlencode/README.md) | Percent-encode a string for use in URLs |
 | [`mbox-diff`](src/tools/mbox-diff/README.md) | Find new emails between two mbox files |
+| [`mbox-index`](src/tools/mbox-index/README.md) | Build an index of an mbox file by message identifier |
+| [`mbox-gen`](src/tools/mbox-gen/README.md) | Generate synthetic mbox files for testing |
 
 ## Usage
 
