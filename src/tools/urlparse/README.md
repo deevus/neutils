@@ -23,6 +23,8 @@ urlparse [OPTIONS] <url>
 | `--output-format` | `-o` | Output format (`json`, `markdown`) |
 | `--field` | `-f` | Extract a single field (`scheme`, `user`, `password`, `host`, `port`, `path`, `query`, `fragment`) |
 
+When `--output-format` is omitted, `urlparse` renders a styled markdown view if stdout is a TTY, and raw markdown otherwise (so piping to another tool gives you plain text).
+
 ## Examples
 
 ```bash

@@ -9,7 +9,6 @@ Modern CLI utilities for everyday developer tasks.
 - Each tool does one thing well
 - Instant startup, minimal memory
 - Consistent interface
-- Plain text by default
 
 ## Installation
 
@@ -44,30 +43,26 @@ Download from [GitHub Releases](https://github.com/deevus/neutils/releases) for 
 ### urlparse
 
 ```bash
+# Default: rendered markdown on a TTY, raw markdown when piped
 urlparse "https://user:pass@example.com:8080/path?q=1&lang=en#top"
+
+# JSON output
+urlparse --output-format json "https://example.com/api?page=2"
 ```
 
 ```json
 {
   "scheme": "https",
-  "user": "user",
-  "password": "pass",
   "host": "example.com",
-  "port": 8080,
-  "path": "/path",
-  "query": "q=1&lang=en",
+  "path": "/api",
+  "query": "page=2",
   "queryParams": {
-    "q": "1",
-    "lang": "en"
-  },
-  "fragment": "top"
+    "page": "2"
+  }
 }
 ```
 
 ```bash
-# JSON output
-urlparse --output-format json "https://example.com/api?page=2"
-
 # Markdown table output
 urlparse --output-format markdown "https://example.com/api?page=2"
 
@@ -95,6 +90,33 @@ mbox-diff base.mbox new.mbox -o diff.mbox
 
 # Example: sync a mailbox incrementally
 mbox-diff yesterday.mbox today.mbox -o new-messages.mbox
+```
+
+### mbox-index
+
+Build an index mapping message identifiers to byte offsets. Messages without a `Message-ID` header are keyed by the SHA-256 of their contents.
+
+```bash
+# Write index next to the mbox (mail.mbox → mail.mbox-index)
+mbox-index mail.mbox
+
+# Write index to an explicit location
+mbox-index -o mail.idx mail.mbox
+```
+
+### mbox-gen
+
+Generate synthetic mbox files for testing and benchmarking.
+
+```bash
+# Generate a 100 MB mbox
+mbox-gen --size 100M out.mbox
+
+# Reproducible 1 GiB fixture with larger message bodies
+mbox-gen --size 1GiB --seed 42 --body-size 4096 fixture.mbox
+
+# Simulate missing Message-IDs on 20% of messages
+mbox-gen --size 10M --with-id-ratio 0.8 partial.mbox
 ```
 
 ## Development
