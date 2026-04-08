@@ -151,6 +151,7 @@ pub fn index(allocator: Allocator, file: File) !Index {
     defer locations.deinit(allocator);
 
     var message_ids: std.ArrayListUnmanaged(u8) = .empty;
+    var message_count: u32 = 0;
 
     var seen_ids: std.StringHashMapUnmanaged(void) = .empty;
     defer {
@@ -203,6 +204,8 @@ pub fn index(allocator: Allocator, file: File) !Index {
                     message_ids.appendSliceAssumeCapacity(message_id);
                     message_ids.appendAssumeCapacity(0);
 
+                    message_count += 1;
+
                     try seen_ids.putNoClobber(allocator, try allocator.dupe(u8, message_id), {});
                 }
 
@@ -230,14 +233,14 @@ pub fn index(allocator: Allocator, file: File) !Index {
     var result: Index = .{};
     result.message_ids = message_ids;
 
+    try result.locations.ensureTotalCapacity(allocator, message_count);
+
     var last_sentinel: usize = 0;
     for (locations.items) |location| {
         const i = std.mem.indexOfScalarPos(u8, message_ids.items, last_sentinel, 0).?;
         const message_id = message_ids.items[last_sentinel..i];
 
-        if (!result.locations.contains(message_id)) {
-            try result.locations.putNoClobber(allocator, message_id, location);
-        }
+        result.locations.putAssumeCapacityNoClobber(message_id, location);
 
         last_sentinel = i + 1;
     }
@@ -290,4 +293,60 @@ test "read roundtrips with write" {
     const loc2 = restored.locations.get("<msg2@example.com>").?;
     try std.testing.expectEqual(@as(u64, 100), loc2.start);
     try std.testing.expectEqual(@as(u64, 250), loc2.end);
+}
+
+test "index deduplicates messages sharing a Message-ID" {
+    const allocator = std.testing.allocator;
+
+    // Three messages, but only two distinct Message-IDs.
+    // If `message_count` were tracked incorrectly, the second
+    // pass's `putAssumeCapacityNoClobber` would panic on
+    // insufficient capacity (under-count) — so this test pins
+    // the pre-allocation against the actual insert count.
+    const mbox_content =
+        "From sender@example.com Mon Jan  1 00:00:00 2024\n" ++
+        "Message-ID: <dup@example.com>\n" ++
+        "Subject: First\n" ++
+        "\n" ++
+        "Body one\n" ++
+        "\n" ++
+        "From sender@example.com Mon Jan  1 00:00:01 2024\n" ++
+        "Message-ID: <dup@example.com>\n" ++
+        "Subject: Second (duplicate ID)\n" ++
+        "\n" ++
+        "Body two\n" ++
+        "\n" ++
+        "From sender@example.com Mon Jan  1 00:00:02 2024\n" ++
+        "Message-ID: <unique@example.com>\n" ++
+        "Subject: Third\n" ++
+        "\n" ++
+        "Body three\n";
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.writeFile(.{ .sub_path = "dup.mbox", .data = mbox_content });
+    var file = try tmp.dir.openFile("dup.mbox", .{});
+    defer file.close();
+
+    var idx = try Index.index(allocator, file);
+    defer idx.deinit(allocator);
+
+    // Two unique IDs despite three "From " messages.
+    try std.testing.expectEqual(@as(u32, 2), idx.locations.count());
+    try std.testing.expect(idx.locations.contains("<dup@example.com>"));
+    try std.testing.expect(idx.locations.contains("<unique@example.com>"));
+
+    // The message_ids blob should also reflect dedup: exactly two
+    // null-terminated entries.
+    var sentinel_count: usize = 0;
+    for (idx.message_ids.items) |b| {
+        if (b == 0) sentinel_count += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 2), sentinel_count);
+
+    // First occurrence wins: the location stored for <dup@example.com>
+    // must start at byte 0 (the first "From " line).
+    const dup_loc = idx.locations.get("<dup@example.com>").?;
+    try std.testing.expectEqual(@as(u64, 0), dup_loc.start);
 }
