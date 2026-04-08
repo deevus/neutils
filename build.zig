@@ -20,6 +20,8 @@ const Dependency = union(enum) {
     const mbox: Dependency = .{ .lib = .{ .name = "mbox", .path = "src/lib/mbox/root.zig", .deps = &.{.zigfsm} } };
 };
 
+const libs: []const Dependency = &.{.mbox};
+
 const default_deps: []const Dependency = &.{.cli};
 
 const dependency_map: std.StaticStringMap([]const Dependency) = .initComptime(.{
@@ -112,6 +114,46 @@ pub fn build(b: *std.Build) !void {
 
         test_all_step.dependOn(test_step);
     }
+
+    // register tests for libs
+    for (libs) |dep| {
+        const mod = resolveMod(b, dep, target, optimize);
+
+        const unit_tests = b.addTest(.{
+            .root_module = mod,
+        });
+
+        const test_run = b.addRunArtifact(unit_tests);
+        const test_step = b.step(b.fmt("test-lib-{s}", .{dep.lib.name}), b.fmt("Test lib-{s}", .{dep.lib.name}));
+
+        test_step.dependOn(&test_run.step);
+        test_all_step.dependOn(test_step);
+    }
+}
+
+fn resolveMod(
+    b: *std.Build,
+    dependency: Dependency,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) *std.Build.Module {
+    switch (dependency) {
+        .exact => |name| {
+            return b.dependency(name, .{ .target = target, .optimize = optimize }).module(name);
+        },
+        .module => |m| {
+            return b.dependency(m.name, .{ .target = target, .optimize = optimize }).module(m.module);
+        },
+        .lib => |l| {
+            const lib_mod = b.createModule(.{
+                .root_source_file = b.path(l.path),
+                .target = target,
+                .optimize = optimize,
+            });
+            resolveDeps(b, lib_mod, target, optimize, l.deps);
+            return lib_mod;
+        },
+    }
 }
 
 fn resolveDeps(
@@ -122,23 +164,15 @@ fn resolveDeps(
     deps: []const Dependency,
 ) void {
     for (deps) |dep| {
-        switch (dep) {
-            .exact => |name| {
-                mod.addImport(name, b.dependency(name, .{ .target = target, .optimize = optimize }).module(name));
-            },
-            .module => |m| {
-                mod.addImport(m.name, b.dependency(m.name, .{ .target = target, .optimize = optimize }).module(m.module));
-            },
-            .lib => |l| {
-                const lib_mod = b.createModule(.{
-                    .root_source_file = b.path(l.path),
-                    .target = target,
-                    .optimize = optimize,
-                });
-                resolveDeps(b, lib_mod, target, optimize, l.deps);
-                mod.addImport(l.name, lib_mod);
-            },
-        }
+        const dep_mod = resolveMod(b, dep, target, optimize);
+
+        const mod_name = switch (dep) {
+            .exact => |name| name,
+            .module => |m| m.name,
+            .lib => |l| l.name,
+        };
+
+        mod.addImport(mod_name, dep_mod);
     }
 }
 
