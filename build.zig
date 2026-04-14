@@ -19,9 +19,10 @@ const Dependency = union(enum) {
     const zigdown: Dependency = .{ .exact = "zigdown" };
     const zigfsm: Dependency = .{ .exact = "zigfsm" };
     const mbox: Dependency = .{ .lib = .{ .name = "mbox", .path = "src/lib/mbox/root.zig", .deps = &.{.zigfsm} } };
+    const md: Dependency = .{ .lib = .{ .name = "md", .path = "src/lib/md/root.zig", .deps = &.{.zigdown} } };
 };
 
-const libs: []const Dependency = &.{.mbox};
+const libs: []const Dependency = &.{ .mbox, .md };
 
 const default_deps: []const Dependency = &.{.cli};
 
@@ -32,6 +33,13 @@ const dependency_map: std.StaticStringMap([]const Dependency) = .initComptime(.{
             &[_]Dependency{
                 .kewpie,
                 .zigdown,
+            },
+    },
+    .{
+        "og-check",
+        default_deps ++
+            &[_]Dependency{
+                .md,
             },
     },
     .{
