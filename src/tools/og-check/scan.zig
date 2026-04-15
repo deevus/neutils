@@ -224,6 +224,43 @@ pub const Meta = struct {
     }
 };
 
+pub fn findByKey(key: []const u8, tags: ArrayList(Meta)) ?*const Meta {
+    for (tags.items) |*meta| {
+        if (std.mem.eql(u8, meta.key, key)) {
+            return meta;
+        }
+    }
+
+    return null;
+}
+
+pub fn parseSlice(allocator: Allocator, slice: []const u8) !ArrayList(Meta) {
+    var offset: usize = 0;
+    var meta_tags: ArrayList(Meta) = .empty;
+
+    if (std.ascii.indexOfIgnoreCase(slice, "<title>")) |start| {
+        if (std.ascii.indexOfIgnoreCasePos(slice, start, "</title>")) |end| {
+            try meta_tags.append(allocator, .{
+                .key = "title",
+                .value = .init(slice[(start + "<title>".len)..end]),
+                .namespace = .html,
+            });
+        }
+    }
+
+    while (std.ascii.indexOfIgnoreCasePos(slice, offset, "<meta ")) |start| {
+        if (std.ascii.indexOfIgnoreCasePos(slice, start, ">")) |end| {
+            if (Meta.parse(slice[start..(end + 1)])) |meta| {
+                try meta_tags.append(allocator, meta);
+            }
+        }
+
+        offset = start + 1;
+    }
+
+    return meta_tags;
+}
+
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayListUnmanaged;
