@@ -1,79 +1,97 @@
-pub fn writeOpenGraph(allocator: Allocator, tags: ArrayList(Meta), writer: *Writer) !void {
-    var markdown_allocating_writer: AllocatingWriter = .init(allocator);
-    defer markdown_allocating_writer.deinit();
-    const markdown_writer = &markdown_allocating_writer.writer;
+pub fn writeIssuesAndExit(allocator: Allocator, issues: []const ScanResult.Issue, writer: *Writer) !noreturn {
+    var markdown_builder: MarkdownBuilder = .init(allocator);
+    defer markdown_builder.deinit();
 
-    // required fields
-    const title = findByKey("og:title", tags) orelse return error.MissingTitle;
-    const @"type" = findByKey("og:type", tags) orelse return error.MissingType;
-    const image = findByKey("og:image", tags) orelse return error.MissingImage;
-    const url = findByKey("og:url", tags) orelse return error.MissingUrl;
+    try markdown_builder.print("# {d} issues found\n\n", .{issues.len});
 
-    try markdown_writer.print("# Title: [{f}]({s})\n\n", .{ title.value, url.value.raw });
-
-    if (findByKey("og:description", tags)) |description| {
-        try markdown_writer.print("## Description\n\n{f}\n\n", .{description.value});
+    for (issues) |issue| {
+        try markdown_builder.print(" - {s} {s}: {s}\n", .{ @tagName(issue.severity), @tagName(issue.tag), issue.field });
     }
 
-    if (findByKey("og:site-name", tags)) |site_name| {
-        try markdown_writer.print("## Site name: {f}\n\n", .{site_name.value});
-    }
-
-    try markdown_writer.print("![Image]({s})\n\n", .{image.value.raw});
-
-    if (findByKey("og:image:alt", tags)) |image_alt| {
-        try markdown_writer.print("**Image Alt**: {f}\n\n", .{image_alt.value});
-    }
-
-    try markdown_writer.print("**Type**: {s}\n\n", .{@"type".value.raw});
-    try markdown_writer.print("**URL**: [{0s}]({0s})\n\n", .{url.value.raw});
-
-    if (findByKey("og:locale", tags)) |locale| {
-        try markdown_writer.print("**Locale**: {s}\n\n", .{locale.value.raw});
-    }
-
-    try md.renderMarkdownToTerminal(allocator, markdown_allocating_writer.written(), writer);
-    try writer.flush();
+    try markdown_builder.render(allocator, .pretty, writer);
+    std.process.exit(1);
 }
 
-pub fn writeTwitter(allocator: Allocator, tags: ArrayList(Meta), writer: *Writer) !void {
-    var markdown_allocating_writer: AllocatingWriter = .init(allocator);
-    defer markdown_allocating_writer.deinit();
-    const markdown_writer = &markdown_allocating_writer.writer;
+pub fn writeOpenGraph(allocator: Allocator, scan_result: *ScanResult, stdout: *Writer, stderr: *Writer) !void {
+    if (try scan_result.validate(allocator, .opengraph) != .success) {
+        try writeIssuesAndExit(allocator, scan_result.issues.items, stderr);
+    }
+
+    var markdown_builder: MarkdownBuilder = .init(allocator);
+    defer markdown_builder.deinit();
+
+    // required fields
+    const title = scan_result.findByKey("og:title") orelse unreachable;
+    const @"type" = scan_result.findByKey("og:type") orelse unreachable;
+    const image = scan_result.findByKey("og:image") orelse unreachable;
+    const url = scan_result.findByKey("og:url") orelse unreachable;
+
+    try markdown_builder.print("# Title: [{f}]({s})\n\n", .{ title.value, url.value.raw });
+
+    if (scan_result.findByKey("og:description")) |description| {
+        try markdown_builder.print("## Description\n\n{f}\n\n", .{description.value});
+    }
+
+    if (scan_result.findByKey("og:site-name")) |site_name| {
+        try markdown_builder.print("## Site name: {f}\n\n", .{site_name.value});
+    }
+
+    try markdown_builder.print("![Image]({s})\n\n", .{image.value.raw});
+
+    if (scan_result.findByKey("og:image:alt")) |image_alt| {
+        try markdown_builder.print("**Image Alt**: {f}\n\n", .{image_alt.value});
+    }
+
+    try markdown_builder.print("**Type**: {s}\n\n", .{@"type".value.raw});
+    try markdown_builder.print("**URL**: [{0s}]({0s})\n\n", .{url.value.raw});
+
+    if (scan_result.findByKey("og:locale")) |locale| {
+        try markdown_builder.print("**Locale**: {s}\n\n", .{locale.value.raw});
+    }
+
+    try markdown_builder.render(allocator, .pretty, stdout);
+}
+
+pub fn writeTwitter(allocator: Allocator, scan_result: *ScanResult, stdout: *Writer, stderr: *Writer) !void {
+    if (try scan_result.validate(allocator, .twitter) != .success) {
+        try writeIssuesAndExit(allocator, scan_result.issues.items, stderr);
+    }
+
+    var markdown_builder: MarkdownBuilder = .init(allocator);
+    defer markdown_builder.deinit();
 
     // required fields — twitter clients fall back to og:* when twitter:* is absent
-    const card = findByKey("twitter:card", tags) orelse return error.MissingCard;
-    const title = findByKey("twitter:title", tags) orelse findByKey("og:title", tags) orelse return error.MissingTitle;
-    const image = findByKey("twitter:image", tags) orelse findByKey("og:image", tags) orelse return error.MissingImage;
+    const card = scan_result.findByKey("twitter:card") orelse unreachable;
+    const title = scan_result.findByKey("twitter:title") orelse scan_result.findByKey("og:title") orelse unreachable;
+    const image = scan_result.findByKey("twitter:image") orelse scan_result.findByKey("og:image") orelse unreachable;
 
-    try markdown_writer.print("# Title: {f}\n\n", .{title.value});
+    try markdown_builder.print("# Title: {f}\n\n", .{title.value});
 
-    if (findByKey("twitter:description", tags) orelse findByKey("og:description", tags)) |description| {
-        try markdown_writer.print("## Description\n\n{f}\n\n", .{description.value});
+    if (scan_result.findByKey("twitter:description") orelse scan_result.findByKey("og:description")) |description| {
+        try markdown_builder.print("## Description\n\n{f}\n\n", .{description.value});
     }
 
-    if (findByKey("twitter:site", tags)) |site| {
-        try markdown_writer.print("## Site: {f}\n\n", .{site.value});
+    if (scan_result.findByKey("twitter:site")) |site| {
+        try markdown_builder.print("## Site: {f}\n\n", .{site.value});
     }
 
-    if (findByKey("twitter:creator", tags)) |creator| {
-        try markdown_writer.print("## Creator: {f}\n\n", .{creator.value});
+    if (scan_result.findByKey("twitter:creator")) |creator| {
+        try markdown_builder.print("## Creator: {f}\n\n", .{creator.value});
     }
 
-    try markdown_writer.print("![Image]({s})\n\n", .{image.value.raw});
+    try markdown_builder.print("![Image]({s})\n\n", .{image.value.raw});
 
-    if (findByKey("twitter:image:alt", tags) orelse findByKey("og:image:alt", tags)) |image_alt| {
-        try markdown_writer.print("**Image Alt**: {f}\n\n", .{image_alt.value});
+    if (scan_result.findByKey("twitter:image:alt") orelse scan_result.findByKey("og:image:alt")) |image_alt| {
+        try markdown_builder.print("**Image Alt**: {f}\n\n", .{image_alt.value});
     }
 
-    try markdown_writer.print("**Card**: {s}\n\n", .{card.value.raw});
+    try markdown_builder.print("**Card**: {s}\n\n", .{card.value.raw});
 
-    if (findByKey("twitter:url", tags) orelse findByKey("og:url", tags)) |url| {
-        try markdown_writer.print("**URL**: [{0s}]({0s})\n", .{url.value.raw});
+    if (scan_result.findByKey("twitter:url") orelse scan_result.findByKey("og:url")) |url| {
+        try markdown_builder.print("**URL**: [{0s}]({0s})\n", .{url.value.raw});
     }
 
-    try md.renderMarkdownToTerminal(allocator, markdown_allocating_writer.written(), writer);
-    try writer.flush();
+    try markdown_builder.render(allocator, .pretty, stdout);
 }
 
 pub fn writeJson(tags: ArrayList(Meta), writer: *Writer) !void {
@@ -123,23 +141,20 @@ pub fn writeJson(tags: ArrayList(Meta), writer: *Writer) !void {
     try writer.flush();
 }
 
-pub fn writeTable(allocator: Allocator, tags: ArrayList(scan.Meta), writer: *Writer) !void {
-    var markdown_allocating_writer: AllocatingWriter = .init(allocator);
-    defer markdown_allocating_writer.deinit();
-
-    const markdown_writer = &markdown_allocating_writer.writer;
+pub fn writeTable(allocator: Allocator, tags: ArrayList(scanner.Meta), writer: *Writer) !void {
+    var markdown_builder: MarkdownBuilder = .init(allocator);
+    defer markdown_builder.deinit();
 
     if (tags.items.len > 0) {
-        try markdown_writer.writeAll("|Type|Key|Value|\n");
-        try markdown_writer.writeAll("|-|-|-|\n");
+        try markdown_builder.writeAll("|Type|Key|Value|\n");
+        try markdown_builder.writeAll("|-|-|-|\n");
     }
 
     for (tags.items) |meta_tag| {
-        try markdown_writer.print("|{s}|{s}|{f}|\n", .{ meta_tag.namespace.label(), meta_tag.key, meta_tag.value });
+        try markdown_builder.print("|{s}|{s}|{f}|\n", .{ meta_tag.namespace.label(), meta_tag.key, meta_tag.value });
     }
 
-    try md.renderMarkdownToTerminal(allocator, markdown_allocating_writer.written(), writer);
-    try writer.flush();
+    try markdown_builder.render(allocator, .pretty, writer);
 }
 
 const std = @import("std");
@@ -148,8 +163,9 @@ const ArrayList = std.ArrayListUnmanaged;
 const Writer = std.Io.Writer;
 const AllocatingWriter = Writer.Allocating;
 
-const scan = @import("scan.zig");
-const findByKey = scan.findByKey;
-const Meta = scan.Meta;
+const scanner = @import("scanner.zig");
+const Meta = scanner.Meta;
+const ScanResult = scanner.ScanResult;
 
 const md = @import("md");
+const MarkdownBuilder = md.MarkdownBuilder;

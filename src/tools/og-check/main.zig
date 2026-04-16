@@ -11,8 +11,8 @@ fn ogCheck() !void {
     const bytes = try fetch.getBodyAlloc(allocator, uri);
     defer allocator.free(bytes);
 
-    var meta_tags = try scan.parseSlice(allocator, bytes);
-    defer meta_tags.deinit(allocator);
+    var scan_result: ScanResult = try .scan(allocator, bytes);
+    defer scan_result.deinit(allocator);
 
     const stdout = std.fs.File.stdout();
     var stdout_buf: [4096]u8 = undefined;
@@ -25,24 +25,10 @@ fn ogCheck() !void {
     const stderr_writer = &stderr_stream.interface;
 
     switch (cli.config.output_format) {
-        .opengraph => render.writeOpenGraph(allocator, meta_tags, stdout_writer) catch |err| switch (err) {
-            error.MissingTitle, error.MissingType, error.MissingImage, error.MissingUrl => {
-                try stderr_writer.print("error: OpenGraph missing required field — {}.\n", .{err});
-                try stderr_writer.flush();
-                std.process.exit(1);
-            },
-            else => return err,
-        },
-        .twitter => render.writeTwitter(allocator, meta_tags, stdout_writer) catch |err| switch (err) {
-            error.MissingCard, error.MissingTitle, error.MissingImage => {
-                try stderr_writer.print("error: Twitter Card missing required field — {}.\n", .{err});
-                try stderr_writer.flush();
-                std.process.exit(1);
-            },
-            else => return err,
-        },
-        .table => try render.writeTable(allocator, meta_tags, stdout_writer),
-        .json => try render.writeJson(meta_tags, stdout_writer),
+        .opengraph => try render.writeOpenGraph(allocator, &scan_result, stdout_writer, stderr_writer),
+        .twitter => try render.writeTwitter(allocator, &scan_result, stdout_writer, stderr_writer),
+        .table => try render.writeTable(allocator, scan_result.meta_tags, stdout_writer),
+        .json => try render.writeJson(scan_result.meta_tags, stdout_writer),
     }
 }
 
@@ -53,5 +39,8 @@ const Uri = std.Uri;
 const cli = @import("cli.zig");
 
 const fetch = @import("fetch.zig");
-const scan = @import("scan.zig");
+
+const scanner = @import("scanner.zig");
+const ScanResult = scanner.ScanResult;
+
 const render = @import("render.zig");
