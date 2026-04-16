@@ -38,7 +38,12 @@ fn ogCheck() !void {
     switch (cli.config.issueFormat()) {
         .human => try render.writeIssuesHuman(allocator, scan_result, cli.config, stderr_writer),
         .ci => try render.writeIssuesCi(scan_result, cli.config, stderr_writer),
-        .json => try render.writeIssuesJson(scan_result, cli.config, stderr_writer),
+        .json => {
+            // Makes it convenient for pipelines: issues are emitted on stdout when output is suppressed
+            const writer = if (output_format == .none) stdout_writer else stderr_writer;
+
+            try render.writeIssuesJson(scan_result, cli.config, writer);
+        },
     }
 
     if (validate_result == .errors) {
