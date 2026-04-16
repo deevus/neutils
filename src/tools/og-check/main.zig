@@ -25,10 +25,14 @@ fn ogCheck() !void {
     const stderr_writer = &stderr_stream.interface;
 
     switch (cli.config.output_format) {
-        .opengraph => try render.writeOpenGraph(allocator, &scan_result, stdout_writer, stderr_writer),
-        .twitter => try render.writeTwitter(allocator, &scan_result, stdout_writer, stderr_writer),
+        .opengraph => try render.writeOpenGraph(allocator, &scan_result, stdout_writer),
+        .twitter => try render.writeTwitter(allocator, &scan_result, stdout_writer),
         .table => try render.writeTable(allocator, scan_result.meta_tags, stdout_writer),
         .json => try render.writeJson(scan_result.meta_tags, stdout_writer),
+    }
+
+    if (try scan_result.validate(allocator, Schema.fromConfig(cli.config)) != .success) {
+        try render.writeIssuesAndExit(allocator, scan_result.issues.items, stderr_writer);
     }
 }
 
@@ -42,5 +46,6 @@ const fetch = @import("fetch.zig");
 
 const scanner = @import("scanner.zig");
 const ScanResult = scanner.ScanResult;
+const Schema = ScanResult.Schema;
 
 const render = @import("render.zig");

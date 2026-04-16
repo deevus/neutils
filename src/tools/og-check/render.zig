@@ -12,21 +12,13 @@ pub fn writeIssuesAndExit(allocator: Allocator, issues: []const ScanResult.Issue
     std.process.exit(1);
 }
 
-pub fn writeOpenGraph(allocator: Allocator, scan_result: *ScanResult, stdout: *Writer, stderr: *Writer) !void {
-    if (try scan_result.validate(allocator, .opengraph) != .success) {
-        try writeIssuesAndExit(allocator, scan_result.issues.items, stderr);
-    }
-
+pub fn writeOpenGraph(allocator: Allocator, scan_result: *ScanResult, stdout: *Writer) !void {
     var markdown_builder: MarkdownBuilder = .init(allocator);
     defer markdown_builder.deinit();
 
-    // required fields
-    const title = scan_result.findByKey("og:title") orelse unreachable;
-    const @"type" = scan_result.findByKey("og:type") orelse unreachable;
-    const image = scan_result.findByKey("og:image") orelse unreachable;
-    const url = scan_result.findByKey("og:url") orelse unreachable;
-
-    try markdown_builder.print("# Title: [{f}]({s})\n\n", .{ title.value, url.value.raw });
+    if (scan_result.findByKey("og_title")) |title| {
+        try markdown_builder.print("# Title: {f}\n\n", .{title.value});
+    }
 
     if (scan_result.findByKey("og:description")) |description| {
         try markdown_builder.print("## Description\n\n{f}\n\n", .{description.value});
@@ -36,14 +28,21 @@ pub fn writeOpenGraph(allocator: Allocator, scan_result: *ScanResult, stdout: *W
         try markdown_builder.print("## Site name: {f}\n\n", .{site_name.value});
     }
 
-    try markdown_builder.print("![Image]({s})\n\n", .{image.value.raw});
+    if (scan_result.findByKey("og:image")) |image| {
+        try markdown_builder.print("![Image]({s})\n\n", .{image.value.raw});
+    }
 
     if (scan_result.findByKey("og:image:alt")) |image_alt| {
         try markdown_builder.print("**Image Alt**: {f}\n\n", .{image_alt.value});
     }
 
-    try markdown_builder.print("**Type**: {s}\n\n", .{@"type".value.raw});
-    try markdown_builder.print("**URL**: [{0s}]({0s})\n\n", .{url.value.raw});
+    if (scan_result.findByKey("og:type")) |@"type"| {
+        try markdown_builder.print("**Type**: {s}\n\n", .{@"type".value.raw});
+    }
+
+    if (scan_result.findByKey("og:url")) |url| {
+        try markdown_builder.print("**URL**: [{0s}]({0s})\n\n", .{url.value.raw});
+    }
 
     if (scan_result.findByKey("og:locale")) |locale| {
         try markdown_builder.print("**Locale**: {s}\n\n", .{locale.value.raw});
@@ -52,20 +51,13 @@ pub fn writeOpenGraph(allocator: Allocator, scan_result: *ScanResult, stdout: *W
     try markdown_builder.render(allocator, .pretty, stdout);
 }
 
-pub fn writeTwitter(allocator: Allocator, scan_result: *ScanResult, stdout: *Writer, stderr: *Writer) !void {
-    if (try scan_result.validate(allocator, .twitter) != .success) {
-        try writeIssuesAndExit(allocator, scan_result.issues.items, stderr);
-    }
-
+pub fn writeTwitter(allocator: Allocator, scan_result: *ScanResult, stdout: *Writer) !void {
     var markdown_builder: MarkdownBuilder = .init(allocator);
     defer markdown_builder.deinit();
 
-    // required fields — twitter clients fall back to og:* when twitter:* is absent
-    const card = scan_result.findByKey("twitter:card") orelse unreachable;
-    const title = scan_result.findByKey("twitter:title") orelse scan_result.findByKey("og:title") orelse unreachable;
-    const image = scan_result.findByKey("twitter:image") orelse scan_result.findByKey("og:image") orelse unreachable;
-
-    try markdown_builder.print("# Title: {f}\n\n", .{title.value});
+    if (scan_result.findByKey("twitter:title") orelse scan_result.findByKey("og:title")) |title| {
+        try markdown_builder.print("# Title: {f}\n\n", .{title.value});
+    }
 
     if (scan_result.findByKey("twitter:description") orelse scan_result.findByKey("og:description")) |description| {
         try markdown_builder.print("## Description\n\n{f}\n\n", .{description.value});
@@ -79,13 +71,17 @@ pub fn writeTwitter(allocator: Allocator, scan_result: *ScanResult, stdout: *Wri
         try markdown_builder.print("## Creator: {f}\n\n", .{creator.value});
     }
 
-    try markdown_builder.print("![Image]({s})\n\n", .{image.value.raw});
+    if (scan_result.findByKey("twitter:image") orelse scan_result.findByKey("og:image")) |image| {
+        try markdown_builder.print("![Image]({s})\n\n", .{image.value.raw});
+    }
 
     if (scan_result.findByKey("twitter:image:alt") orelse scan_result.findByKey("og:image:alt")) |image_alt| {
         try markdown_builder.print("**Image Alt**: {f}\n\n", .{image_alt.value});
     }
 
-    try markdown_builder.print("**Card**: {s}\n\n", .{card.value.raw});
+    if (scan_result.findByKey("twitter:card")) |card| {
+        try markdown_builder.print("**Card**: {s}\n\n", .{card.value.raw});
+    }
 
     if (scan_result.findByKey("twitter:url") orelse scan_result.findByKey("og:url")) |url| {
         try markdown_builder.print("**URL**: [{0s}]({0s})\n", .{url.value.raw});
