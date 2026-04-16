@@ -32,6 +32,7 @@ pub fn render(self: *MarkdownBuilder, allocator: Allocator, comptime format: Ren
 
     if (format == .plain) {
         try writer.writeAll(markdown_text);
+        try writer.flush();
         return;
     }
 

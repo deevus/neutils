@@ -25,14 +25,15 @@ fn ogCheck() !void {
     const stderr_writer = &stderr_stream.interface;
 
     switch (cli.config.output_format) {
-        .opengraph => try render.writeOpenGraph(allocator, &scan_result, stdout_writer),
-        .twitter => try render.writeTwitter(allocator, &scan_result, stdout_writer),
-        .table => try render.writeTable(allocator, scan_result.meta_tags, stdout_writer),
-        .json => try render.writeJson(scan_result.meta_tags, stdout_writer),
+        .opengraph => try render.writeOpenGraph(allocator, scan_result, stdout_writer),
+        .twitter => try render.writeTwitter(allocator, scan_result, stdout_writer),
+        .table => try render.writeTable(allocator, scan_result, stdout_writer),
+        .json => try render.writeJson(scan_result, stdout_writer),
     }
 
-    if (try scan_result.validate(allocator, Schema.fromConfig(cli.config)) != .success) {
-        try render.writeIssuesAndExit(allocator, scan_result.issues.items, stderr_writer);
+    if (try scan_result.validate(allocator, cli.config.schemas()) != .success) {
+        try render.writeIssues(allocator, scan_result.issues.items, stderr_writer);
+        std.process.exit(1);
     }
 }
 

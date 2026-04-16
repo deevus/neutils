@@ -1,4 +1,4 @@
-pub fn writeIssuesAndExit(allocator: Allocator, issues: []const ScanResult.Issue, writer: *Writer) !noreturn {
+pub fn writeIssues(allocator: Allocator, issues: []const ScanResult.Issue, writer: *Writer) !void {
     var markdown_builder: MarkdownBuilder = .init(allocator);
     defer markdown_builder.deinit();
 
@@ -9,14 +9,13 @@ pub fn writeIssuesAndExit(allocator: Allocator, issues: []const ScanResult.Issue
     }
 
     try markdown_builder.render(allocator, .pretty, writer);
-    std.process.exit(1);
 }
 
-pub fn writeOpenGraph(allocator: Allocator, scan_result: *ScanResult, stdout: *Writer) !void {
+pub fn writeOpenGraph(allocator: Allocator, scan_result: ScanResult, stdout: *Writer) !void {
     var markdown_builder: MarkdownBuilder = .init(allocator);
     defer markdown_builder.deinit();
 
-    if (scan_result.findByKey("og_title")) |title| {
+    if (scan_result.findByKey("og:title")) |title| {
         try markdown_builder.print("# Title: {f}\n\n", .{title.value});
     }
 
@@ -51,7 +50,7 @@ pub fn writeOpenGraph(allocator: Allocator, scan_result: *ScanResult, stdout: *W
     try markdown_builder.render(allocator, .pretty, stdout);
 }
 
-pub fn writeTwitter(allocator: Allocator, scan_result: *ScanResult, stdout: *Writer) !void {
+pub fn writeTwitter(allocator: Allocator, scan_result: ScanResult, stdout: *Writer) !void {
     var markdown_builder: MarkdownBuilder = .init(allocator);
     defer markdown_builder.deinit();
 
@@ -90,7 +89,7 @@ pub fn writeTwitter(allocator: Allocator, scan_result: *ScanResult, stdout: *Wri
     try markdown_builder.render(allocator, .pretty, stdout);
 }
 
-pub fn writeJson(tags: ArrayList(Meta), writer: *Writer) !void {
+pub fn writeJson(scan_result: ScanResult, writer: *Writer) !void {
     var json_writer: std.json.Stringify = .{
         .writer = writer,
         .options = .{ .whitespace = .indent_2 },
@@ -101,7 +100,7 @@ pub fn writeJson(tags: ArrayList(Meta), writer: *Writer) !void {
     for (std.enums.values(Meta.Namespace)) |ns| {
         var ns_started = false;
 
-        for (tags.items) |tag| {
+        for (scan_result.meta_tags.items) |tag| {
             if (tag.namespace != ns) continue;
 
             if (!ns_started) {
@@ -137,9 +136,11 @@ pub fn writeJson(tags: ArrayList(Meta), writer: *Writer) !void {
     try writer.flush();
 }
 
-pub fn writeTable(allocator: Allocator, tags: ArrayList(scanner.Meta), writer: *Writer) !void {
+pub fn writeTable(allocator: Allocator, scan_result: ScanResult, writer: *Writer) !void {
     var markdown_builder: MarkdownBuilder = .init(allocator);
     defer markdown_builder.deinit();
+
+    const tags = scan_result.meta_tags;
 
     if (tags.items.len > 0) {
         try markdown_builder.writeAll("|Type|Key|Value|\n");
