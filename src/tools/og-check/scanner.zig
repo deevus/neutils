@@ -247,15 +247,6 @@ pub const ScanResult = struct {
     pub const Schema = enum {
         opengraph,
         twitter,
-
-        pub fn fromConfig(config: Config) []const Schema {
-            return switch (config.output_format) {
-                .opengraph => &[_]Schema{.opengraph},
-                .twitter => &[_]Schema{.twitter},
-                .table => &[_]Schema{ .opengraph, .twitter },
-                .json => &[_]Schema{ .opengraph, .twitter },
-            };
-        }
     };
 
     const init: ScanResult = .{};
@@ -335,10 +326,6 @@ pub const ScanResult = struct {
             .schema = schema,
             .field = keys[0], // report the preferred key
         });
-    }
-
-    pub fn hasErrors(self: *const ScanResult) bool {
-        return self.issues.items.len > 0;
     }
 
     pub fn findByKey(self: *const ScanResult, key: []const u8) ?*const Meta {
