@@ -239,17 +239,17 @@ pub const ScanResult = struct {
             err,
             warn,
 
-            pub fn label(self: Severity) []const u8 {
-                return switch (self) {
-                    .err => "Error",
-                    .warn => "Warning",
-                };
-            }
-
             pub fn glyph(self: Severity) []const u8 {
                 return switch (self) {
                     .err => "❌",
                     .warn => "⚠️",
+                };
+            }
+
+            pub fn json(self: Severity) []const u8 {
+                return switch (self) {
+                    .err => "error",
+                    .warn => "warning",
                 };
             }
         };
@@ -262,6 +262,8 @@ pub const ScanResult = struct {
                     .missing_required => "missing required field",
                 };
             }
+
+            pub const json = label;
         };
     };
 
@@ -272,8 +274,12 @@ pub const ScanResult = struct {
         pub fn label(self: Schema) []const u8 {
             return switch (self) {
                 .opengraph => "OpenGraph",
-                .twitter => "Twitter",
+                .twitter => "Twitter Card",
             };
+        }
+
+        pub fn json(self: Schema) []const u8 {
+            return @tagName(self);
         }
     };
 
@@ -310,6 +316,7 @@ pub const ScanResult = struct {
     pub fn deinit(self: *ScanResult, allocator: Allocator) void {
         self.meta_tags.deinit(allocator);
         self.errors.deinit(allocator);
+        self.warnings.deinit(allocator);
     }
 
     pub const ValidateResult = enum {
@@ -335,7 +342,9 @@ pub const ScanResult = struct {
             }
         }
 
-        return if (self.errors.items.len > 0) .errors else .success;
+        if (self.errors.items.len > 0) return .errors;
+        if (self.warnings.items.len > 0) return .warnings_only;
+        return .success;
     }
 
     fn requireKey(self: *ScanResult, allocator: Allocator, schema: Schema, key: []const u8) !void {
