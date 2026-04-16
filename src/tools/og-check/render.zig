@@ -1,18 +1,18 @@
 const json_options = std.json.Stringify.Options{ .whitespace = .indent_2 };
 
 pub fn writeIssuesCi(scan_result: ScanResult, config: Config, writer: *Writer) !void {
-    for (scan_result.errors.items) |issue| try emitCommand(writer, "error", issue, config.url);
-    for (scan_result.warnings.items) |issue| try emitCommand(writer, "warning", issue, config.url);
+    for (scan_result.errors.items) |issue| try emitCommand(writer, .err, issue, config.url);
+    for (scan_result.warnings.items) |issue| try emitCommand(writer, .warn, issue, config.url);
     try writer.flush();
 }
 
 fn emitCommand(
     writer: *Writer,
-    level: []const u8,
+    severity: ScanResult.Issue.Severity,
     issue: ScanResult.Issue,
     url: []const u8,
 ) !void {
-    try writer.print("::{s} title={s}::", .{ level, issue.schema.label() });
+    try writer.print("::{s} title={s}::", .{ severity.json(), issue.schema.label() });
     try writeCiEscaped(writer, url);
     try writer.print(" — {s} `", .{issue.tag.label()});
     try writeCiEscaped(writer, issue.field);
@@ -80,11 +80,11 @@ fn writeIssueJson(
 ) !void {
     try w.beginObject();
     try w.objectField("severity");
-    try w.write(@tagName(issue.severity));
+    try w.write(issue.severity.json());
     try w.objectField("schema");
-    try w.write(@tagName(issue.schema));
+    try w.write(issue.schema.json());
     try w.objectField("rule");
-    try w.write(@tagName(issue.tag));
+    try w.write(issue.tag.json());
     try w.objectField("field");
     try w.write(issue.field);
 
@@ -279,8 +279,6 @@ const Schema = ScanResult.Schema;
 
 const md = @import("md");
 const MarkdownBuilder = md.MarkdownBuilder;
-
-const cli = @import("cli.zig");
 
 const Config = @import("Config.zig");
 
