@@ -286,7 +286,8 @@ pub const ScanResult = struct {
 
     pub const ValidateResult = enum {
         success,
-        failure,
+        errors,
+        warnings_only,
     };
 
     pub fn validate(self: *ScanResult, allocator: Allocator, schemas: []const Schema) !ValidateResult {
@@ -306,7 +307,7 @@ pub const ScanResult = struct {
             }
         }
 
-        return if (self.issues.items.len > 0) .failure else .success;
+        return if (self.issues.items.len > 0) .errors else .success;
     }
 
     fn requireKey(self: *ScanResult, gpa: Allocator, schema: Schema, key: []const u8) !void {
@@ -344,5 +345,3 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayListUnmanaged;
 const StaticStringMap = std.StaticStringMap;
 const Writer = std.Io.Writer;
-
-const Config = @import("Config.zig");
