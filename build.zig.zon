@@ -1,6 +1,6 @@
 .{
     .name = .neutils,
-    .version = "0.7.0",
+    .version = "0.7.1",
     .dependencies = .{
         .zigdown = .{
             .url = "https://github.com/JacobCrabill/zigdown/archive/aae37f89151378a21134493981efb81fbca2be0f.tar.gz",
