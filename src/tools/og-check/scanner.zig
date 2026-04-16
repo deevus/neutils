@@ -247,6 +247,15 @@ pub const ScanResult = struct {
     pub const Schema = enum {
         opengraph,
         twitter,
+
+        pub fn fromConfig(config: Config) []const Schema {
+            return switch (config.output_format) {
+                .opengraph => &[_]Schema{.opengraph},
+                .twitter => &[_]Schema{.twitter},
+                .table => &[_]Schema{ .opengraph, .twitter },
+                .json => &[_]Schema{ .opengraph, .twitter },
+            };
+        }
     };
 
     const init: ScanResult = .{};
@@ -289,19 +298,21 @@ pub const ScanResult = struct {
         failure,
     };
 
-    pub fn validate(self: *ScanResult, allocator: Allocator, schema: Schema) !ValidateResult {
-        switch (schema) {
-            .opengraph => {
-                try self.requireKey(allocator, .opengraph, "og:title");
-                try self.requireKey(allocator, .opengraph, "og:image");
-                try self.requireKey(allocator, .opengraph, "og:type");
-                try self.requireKey(allocator, .opengraph, "og:url");
-            },
-            .twitter => {
-                try self.requireKey(allocator, .twitter, "twitter:card");
-                try self.requireAnyKey(allocator, .twitter, &.{ "twitter:title", "og:title" });
-                try self.requireAnyKey(allocator, .twitter, &.{ "twitter:image", "og:image" });
-            },
+    pub fn validate(self: *ScanResult, allocator: Allocator, schemas: []const Schema) !ValidateResult {
+        for (schemas) |schema| {
+            switch (schema) {
+                .opengraph => {
+                    try self.requireKey(allocator, .opengraph, "og:title");
+                    try self.requireKey(allocator, .opengraph, "og:image");
+                    try self.requireKey(allocator, .opengraph, "og:type");
+                    try self.requireKey(allocator, .opengraph, "og:url");
+                },
+                .twitter => {
+                    try self.requireKey(allocator, .twitter, "twitter:card");
+                    try self.requireAnyKey(allocator, .twitter, &.{ "twitter:title", "og:title" });
+                    try self.requireAnyKey(allocator, .twitter, &.{ "twitter:image", "og:image" });
+                },
+            }
         }
 
         return if (self.issues.items.len > 0) .failure else .success;
@@ -346,3 +357,5 @@ const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayListUnmanaged;
 const StaticStringMap = std.StaticStringMap;
 const Writer = std.Io.Writer;
+
+const Config = @import("Config.zig");
