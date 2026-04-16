@@ -20,6 +20,9 @@ pub fn writeIssuesJson(scan_result: ScanResult, config: Config, writer: *Writer)
     try w.objectField("version");
     try w.write(build_options.version);
 
+    try w.objectField("schema_version");
+    try w.write(1);
+
     try w.objectField("url");
     try w.write(config.url);
 
