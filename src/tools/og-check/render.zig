@@ -1,3 +1,5 @@
+const json_options = std.json.Stringify.Options{ .whitespace = .indent_2 };
+
 pub fn writeIssuesCi(allocator: Allocator, scan_result: ScanResult, url: []const u8, writer: *Writer) !void {
     _ = allocator; // autofix
     _ = scan_result; // autofix
@@ -9,7 +11,7 @@ pub fn writeIssuesCi(allocator: Allocator, scan_result: ScanResult, url: []const
 pub fn writeIssuesJson(scan_result: ScanResult, config: Config, writer: *Writer) !void {
     var w: std.json.Stringify = .{
         .writer = writer,
-        .options = .{ .whitespace = .indent_2 },
+        .options = json_options,
     };
 
     try w.beginObject();
@@ -178,7 +180,7 @@ pub fn writeTwitter(allocator: Allocator, scan_result: ScanResult, stdout: *Writ
 pub fn writeJson(scan_result: ScanResult, writer: *Writer) !void {
     var json_writer: std.json.Stringify = .{
         .writer = writer,
-        .options = .{ .whitespace = .indent_2 },
+        .options = json_options,
     };
 
     try json_writer.beginObject();
