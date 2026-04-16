@@ -14,7 +14,8 @@ Modern CLI utilities for everyday developer tasks.
 
 ### From source
 
-Requires [Zig](https://ziglang.org/) 0.15+.
+Requires [Zig](https://ziglang.org/) 0.15.x. 
+Zig 0.16+ currently not supported due to breaking changes.
 
 ```bash
 git clone https://github.com/deevus/neutils
