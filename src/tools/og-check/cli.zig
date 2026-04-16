@@ -20,6 +20,12 @@ pub fn execute(allocator: Allocator, exec_fn: ExecFn) !void {
                         .help = "Output format (opengraph, twitter, table, json)",
                         .value_ref = runner.mkRef(&config.output_format),
                     },
+                    .{
+                        .long_name = "issue-format",
+                        .short_alias = 'f',
+                        .help = "Issue format (human, json, ci)",
+                        .value_ref = runner.mkRef(&config.issue_format),
+                    },
                 },
             ),
 

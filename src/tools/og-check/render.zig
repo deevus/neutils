@@ -1,4 +1,71 @@
-pub fn writeIssues(allocator: Allocator, scan_result: ScanResult, url: []const u8, writer: *Writer) !void {
+pub fn writeIssuesCi(allocator: Allocator, scan_result: ScanResult, url: []const u8, writer: *Writer) !void {
+    _ = allocator; // autofix
+    _ = scan_result; // autofix
+    _ = url; // autofix
+    _ = writer; // autofix
+
+}
+
+pub fn writeIssuesJson(scan_result: ScanResult, config: Config, writer: *Writer) !void {
+    var w: std.json.Stringify = .{
+        .writer = writer,
+        .options = .{ .whitespace = .indent_2 },
+    };
+
+    try w.beginObject();
+
+    try w.objectField("tool");
+    try w.write("og-check");
+
+    try w.objectField("version");
+    try w.write(build_options.version);
+
+    try w.objectField("url");
+    try w.write(config.url);
+
+    try w.objectField("status");
+    try w.write(if (scan_result.errors.items.len > 0) "fail" else "pass");
+
+    try w.objectField("summary");
+    try w.beginObject();
+    try w.objectField("errors");
+    try w.write(scan_result.errors.items.len);
+    try w.objectField("warnings");
+    try w.write(scan_result.warnings.items.len);
+    try w.endObject();
+
+    try w.objectField("issues");
+    try w.beginArray();
+    for (scan_result.errors.items) |i| try writeIssueJson(&w, i);
+    for (scan_result.warnings.items) |i| try writeIssueJson(&w, i);
+    try w.endArray();
+
+    try w.endObject();
+    try writer.writeByte('\n');
+    try writer.flush();
+}
+
+fn writeIssueJson(
+    w: *std.json.Stringify,
+    issue: ScanResult.Issue,
+) !void {
+    try w.beginObject();
+    try w.objectField("severity");
+    try w.write(@tagName(issue.severity));
+    try w.objectField("schema");
+    try w.write(@tagName(issue.schema));
+    try w.objectField("rule");
+    try w.write(@tagName(issue.tag));
+    try w.objectField("field");
+    try w.write(issue.field);
+
+    try w.objectField("message");
+    try w.print("{s} `{s}`", .{ issue.tag.label(), issue.field });
+
+    try w.endObject();
+}
+
+pub fn writeIssuesHuman(allocator: Allocator, scan_result: ScanResult, url: []const u8, writer: *Writer) !void {
     var markdown_builder: MarkdownBuilder = .init(allocator);
     defer markdown_builder.deinit();
 
@@ -183,3 +250,9 @@ const Schema = ScanResult.Schema;
 
 const md = @import("md");
 const MarkdownBuilder = md.MarkdownBuilder;
+
+const cli = @import("cli.zig");
+
+const Config = @import("Config.zig");
+
+const build_options = @import("build_options");
