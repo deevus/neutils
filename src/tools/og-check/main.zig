@@ -24,7 +24,8 @@ fn ogCheck() !void {
     var stderr_stream = stderr.writer(&stderr_buf);
     const stderr_writer = &stderr_stream.interface;
 
-    switch (cli.config.output_format) {
+    const output_format = cli.config.outputFormat();
+    switch (output_format) {
         .opengraph => try render.writeOpenGraph(allocator, scan_result, stdout_writer),
         .twitter => try render.writeTwitter(allocator, scan_result, stdout_writer),
         .table => try render.writeTable(allocator, scan_result, stdout_writer),
@@ -32,9 +33,9 @@ fn ogCheck() !void {
         .none => {},
     }
 
-    const validate_result = try scan_result.validate(allocator, cli.config.schemas());
+    const validate_result = try scan_result.validate(allocator, output_format.schemas());
 
-    switch (cli.config.issue_format) {
+    switch (cli.config.issueFormat()) {
         .human => try render.writeIssuesHuman(allocator, scan_result, cli.config, stderr_writer),
         .ci => try render.writeIssuesCi(scan_result, cli.config, stderr_writer),
         .json => try render.writeIssuesJson(scan_result, cli.config, stderr_writer),
@@ -55,6 +56,5 @@ const fetch = @import("fetch.zig");
 
 const scanner = @import("scanner.zig");
 const ScanResult = scanner.ScanResult;
-const Schema = ScanResult.Schema;
 
 const render = @import("render.zig");

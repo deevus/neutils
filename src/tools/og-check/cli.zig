@@ -17,7 +17,7 @@ pub fn execute(allocator: Allocator, exec_fn: ExecFn) !void {
                     .{
                         .long_name = "output-format",
                         .short_alias = 'o',
-                        .help = "Output format (opengraph, twitter, table, json)",
+                        .help = "Output format (opengraph, twitter, table, json, none)",
                         .value_ref = runner.mkRef(&config.output_format),
                     },
                     .{

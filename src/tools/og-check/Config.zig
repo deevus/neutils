@@ -6,6 +6,14 @@ pub const OutputFormat = enum {
     table,
     json,
     none,
+
+    pub fn schemas(self: OutputFormat) []const Schema {
+        return switch (self) {
+            .opengraph => &[_]Schema{.opengraph},
+            .twitter => &[_]Schema{.twitter},
+            .table, .json, .none => &[_]Schema{ .opengraph, .twitter },
+        };
+    }
 };
 
 pub const IssueFormat = enum {
@@ -15,15 +23,31 @@ pub const IssueFormat = enum {
 };
 
 url: []const u8,
-output_format: OutputFormat = .opengraph,
-issue_format: IssueFormat = .human,
+output_format: ?OutputFormat = null,
+issue_format: ?IssueFormat = null,
 
-pub fn schemas(config: Config) []const Schema {
-    return switch (config.output_format) {
-        .opengraph => &[_]Schema{.opengraph},
-        .twitter => &[_]Schema{.twitter},
-        .table, .json, .none => &[_]Schema{ .opengraph, .twitter },
-    };
+pub fn outputFormat(self: Config) OutputFormat {
+    if (self.output_format) |format| {
+        return format;
+    }
+
+    if (std.process.hasEnvVarConstant("GITHUB_ACTIONS") or std.process.hasEnvVarConstant("FORGEJO_ACTIONS")) {
+        return .none;
+    }
+
+    return .opengraph;
+}
+
+pub fn issueFormat(self: Config) IssueFormat {
+    if (self.issue_format) |format| {
+        return format;
+    }
+
+    if (std.process.hasEnvVarConstant("GITHUB_ACTIONS") or std.process.hasEnvVarConstant("FORGEJO_ACTIONS")) {
+        return .ci;
+    }
+
+    return .human;
 }
 
 const std = @import("std");
