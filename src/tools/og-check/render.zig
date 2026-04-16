@@ -89,7 +89,7 @@ fn writeIssueJson(
     try w.write(issue.field);
 
     try w.objectField("message");
-    try w.print("{s} `{s}`", .{ issue.tag.label(), issue.field });
+    try w.print("\"{s} `{s}`\"", .{ issue.tag.label(), issue.field });
 
     try w.endObject();
 }
