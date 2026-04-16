@@ -338,9 +338,9 @@ pub const ScanResult = struct {
         return if (self.errors.items.len > 0) .errors else .success;
     }
 
-    fn requireKey(self: *ScanResult, gpa: Allocator, schema: Schema, key: []const u8) !void {
+    fn requireKey(self: *ScanResult, allocator: Allocator, schema: Schema, key: []const u8) !void {
         if (self.findByKey(key) == null) {
-            try self.errors.append(gpa, .{
+            try self.appendIssue(allocator, .{
                 .tag = .missing_required,
                 .schema = schema,
                 .field = key,
@@ -348,13 +348,20 @@ pub const ScanResult = struct {
         }
     }
 
-    fn requireAnyKey(self: *ScanResult, gpa: Allocator, schema: Schema, keys: []const []const u8) !void {
+    fn requireAnyKey(self: *ScanResult, allocator: Allocator, schema: Schema, keys: []const []const u8) !void {
         for (keys) |k| if (self.findByKey(k) != null) return;
-        try self.errors.append(gpa, .{
+        try self.appendIssue(allocator, .{
             .tag = .missing_required,
             .schema = schema,
             .field = keys[0], // report the preferred key
         });
+    }
+
+    fn appendIssue(self: *ScanResult, allocator: Allocator, issue: Issue) !void {
+        switch (issue.severity) {
+            .err => try self.errors.append(allocator, issue),
+            .warn => try self.warnings.append(allocator, issue),
+        }
     }
 
     pub fn findByKey(self: *const ScanResult, key: []const u8) ?*const Meta {
