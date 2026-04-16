@@ -5,6 +5,7 @@ pub const OutputFormat = enum {
     twitter,
     table,
     json,
+    none,
 };
 
 pub const IssueFormat = enum {
@@ -21,8 +22,7 @@ pub fn schemas(config: Config) []const Schema {
     return switch (config.output_format) {
         .opengraph => &[_]Schema{.opengraph},
         .twitter => &[_]Schema{.twitter},
-        .table => &[_]Schema{ .opengraph, .twitter },
-        .json => &[_]Schema{ .opengraph, .twitter },
+        .table, .json, .none => &[_]Schema{ .opengraph, .twitter },
     };
 }
 
