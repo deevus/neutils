@@ -1,11 +1,27 @@
-pub fn writeIssues(allocator: Allocator, issues: []const ScanResult.Issue, writer: *Writer) !void {
+pub fn writeIssues(allocator: Allocator, scan_result: ScanResult, url: []const u8, writer: *Writer) !void {
     var markdown_builder: MarkdownBuilder = .init(allocator);
     defer markdown_builder.deinit();
 
-    try markdown_builder.print("# {d} issues found\n\n", .{issues.len});
+    const issues = try scan_result.getIssuesSorted(allocator);
+    defer allocator.free(issues);
 
-    for (issues) |issue| {
-        try markdown_builder.print(" - {s} {s}: {s}\n", .{ @tagName(issue.severity), @tagName(issue.tag), issue.field });
+    if (issues.len == 0) {
+        try markdown_builder.print("# ✅ No issues found.\n", .{});
+    } else {
+        try markdown_builder.print("# Checking {s}\n", .{url});
+
+        var current_schema: ?Schema = null;
+
+        for (issues) |issue| {
+            if (current_schema != issue.schema) {
+                current_schema = issue.schema;
+                try markdown_builder.print("\n## {s}\n\n", .{issue.schema.label()});
+            }
+
+            try markdown_builder.print(" - {s} {s} `{s}`\n", .{ issue.severity.glyph(), issue.tag.label(), issue.field });
+        }
+
+        try markdown_builder.print("\n**errors: {d}, warnings: {d}**\n", .{ scan_result.errors.items.len, scan_result.warnings.items.len });
     }
 
     try markdown_builder.render(allocator, .pretty, writer);
@@ -163,6 +179,7 @@ const AllocatingWriter = Writer.Allocating;
 const scanner = @import("scanner.zig");
 const Meta = scanner.Meta;
 const ScanResult = scanner.ScanResult;
+const Schema = ScanResult.Schema;
 
 const md = @import("md");
 const MarkdownBuilder = md.MarkdownBuilder;

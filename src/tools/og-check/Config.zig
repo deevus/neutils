@@ -1,3 +1,5 @@
+const Config = @This();
+
 pub const OutputFormat = enum {
     opengraph,
     twitter,
@@ -5,10 +7,17 @@ pub const OutputFormat = enum {
     json,
 };
 
+pub const IssueFormat = enum {
+    human,
+    json,
+    ci,
+};
+
 url: []const u8,
 output_format: OutputFormat = .opengraph,
+issue_format: IssueFormat = .human,
 
-pub fn schemas(config: @This()) []const Schema {
+pub fn schemas(config: Config) []const Schema {
     return switch (config.output_format) {
         .opengraph => &[_]Schema{.opengraph},
         .twitter => &[_]Schema{.twitter},

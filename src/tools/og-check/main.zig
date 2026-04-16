@@ -31,8 +31,11 @@ fn ogCheck() !void {
         .json => try render.writeJson(scan_result, stdout_writer),
     }
 
-    if (try scan_result.validate(allocator, cli.config.schemas()) != .success) {
-        try render.writeIssues(allocator, scan_result.issues.items, stderr_writer);
+    const validate_result = try scan_result.validate(allocator, cli.config.schemas());
+
+    try render.writeIssues(allocator, scan_result, cli.config.url, stderr_writer);
+
+    if (validate_result == .errors) {
         std.process.exit(1);
     }
 }

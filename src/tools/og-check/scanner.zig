@@ -226,27 +226,55 @@ pub const Meta = struct {
 
 pub const ScanResult = struct {
     meta_tags: ArrayList(Meta) = .empty,
-    issues: ArrayList(Issue) = .empty,
+    errors: ArrayList(Issue) = .empty,
+    warnings: ArrayList(Issue) = .empty,
 
     pub const Issue = struct {
         tag: Tag,
         severity: Severity = .err,
-        schema: ?Schema = null,
+        schema: Schema,
         field: []const u8,
 
         pub const Severity = enum {
             err,
             warn,
+
+            pub fn label(self: Severity) []const u8 {
+                return switch (self) {
+                    .err => "Error",
+                    .warn => "Warning",
+                };
+            }
+
+            pub fn glyph(self: Severity) []const u8 {
+                return switch (self) {
+                    .err => "❌",
+                    .warn => "⚠️",
+                };
+            }
         };
 
         pub const Tag = enum {
             missing_required,
+
+            pub fn label(self: Tag) []const u8 {
+                return switch (self) {
+                    .missing_required => "missing required field",
+                };
+            }
         };
     };
 
     pub const Schema = enum {
         opengraph,
         twitter,
+
+        pub fn label(self: Schema) []const u8 {
+            return switch (self) {
+                .opengraph => "OpenGraph",
+                .twitter => "Twitter",
+            };
+        }
     };
 
     const init: ScanResult = .{};
@@ -281,7 +309,7 @@ pub const ScanResult = struct {
 
     pub fn deinit(self: *ScanResult, allocator: Allocator) void {
         self.meta_tags.deinit(allocator);
-        self.issues.deinit(allocator);
+        self.errors.deinit(allocator);
     }
 
     pub const ValidateResult = enum {
@@ -307,12 +335,12 @@ pub const ScanResult = struct {
             }
         }
 
-        return if (self.issues.items.len > 0) .errors else .success;
+        return if (self.errors.items.len > 0) .errors else .success;
     }
 
     fn requireKey(self: *ScanResult, gpa: Allocator, schema: Schema, key: []const u8) !void {
         if (self.findByKey(key) == null) {
-            try self.issues.append(gpa, .{
+            try self.errors.append(gpa, .{
                 .tag = .missing_required,
                 .schema = schema,
                 .field = key,
@@ -322,7 +350,7 @@ pub const ScanResult = struct {
 
     fn requireAnyKey(self: *ScanResult, gpa: Allocator, schema: Schema, keys: []const []const u8) !void {
         for (keys) |k| if (self.findByKey(k) != null) return;
-        try self.issues.append(gpa, .{
+        try self.errors.append(gpa, .{
             .tag = .missing_required,
             .schema = schema,
             .field = keys[0], // report the preferred key
@@ -337,6 +365,36 @@ pub const ScanResult = struct {
         }
 
         return null;
+    }
+
+    pub fn hasErrors(self: *const ScanResult) bool {
+        return self.errors.items.len > 0;
+    }
+
+    pub fn hasWarnings(self: *const ScanResult) bool {
+        return self.warnings.items.len > 0;
+    }
+
+    pub fn getIssuesSorted(self: ScanResult, allocator: Allocator) ![]const Issue {
+        const all_issues = try std.mem.concat(allocator, Issue, &.{ self.errors.items, self.warnings.items });
+        std.mem.sortUnstable(Issue, all_issues, {}, issueLessThan);
+        return all_issues;
+    }
+
+    fn issueLessThan(_: void, a: Issue, b: Issue) bool {
+        const a_schema = @intFromEnum(a.schema);
+        const b_schema = @intFromEnum(b.schema);
+        if (a_schema != b_schema) return a_schema < b_schema;
+
+        const a_sev = @intFromEnum(a.severity);
+        const b_sev = @intFromEnum(b.severity);
+        if (a_sev != b_sev) return a_sev < b_sev;
+
+        const a_tag = @intFromEnum(a.tag);
+        const b_tag = @intFromEnum(b.tag);
+        if (a_tag != b_tag) return a_tag < b_tag;
+
+        return std.mem.lessThan(u8, a.field, b.field);
     }
 };
 
