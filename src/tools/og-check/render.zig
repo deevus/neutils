@@ -6,7 +6,7 @@ pub fn writeIssues(allocator: Allocator, scan_result: ScanResult, url: []const u
     defer allocator.free(issues);
 
     if (issues.len == 0) {
-        try markdown_builder.print("# ✅ No issues found.\n", .{});
+        try markdown_builder.print("# ✅ {s}\n", .{url});
     } else {
         try markdown_builder.print("# Checking {s}\n", .{url});
 
