@@ -29,13 +29,14 @@ fn ogCheck() !void {
         .twitter => try render.writeTwitter(allocator, scan_result, stdout_writer),
         .table => try render.writeTable(allocator, scan_result, stdout_writer),
         .json => try render.writeJson(scan_result, stdout_writer),
+        .none => {},
     }
 
     const validate_result = try scan_result.validate(allocator, cli.config.schemas());
 
     switch (cli.config.issue_format) {
-        .human => try render.writeIssuesHuman(allocator, scan_result, cli.config.url, stderr_writer),
-        .ci => try render.writeIssuesCi(allocator, scan_result, cli.config.url, stderr_writer),
+        .human => try render.writeIssuesHuman(allocator, scan_result, cli.config, stderr_writer),
+        .ci => try render.writeIssuesCi(scan_result, cli.config, stderr_writer),
         .json => try render.writeIssuesJson(scan_result, cli.config, stderr_writer),
     }
 

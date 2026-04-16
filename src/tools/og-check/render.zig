@@ -1,11 +1,35 @@
 const json_options = std.json.Stringify.Options{ .whitespace = .indent_2 };
 
-pub fn writeIssuesCi(allocator: Allocator, scan_result: ScanResult, url: []const u8, writer: *Writer) !void {
-    _ = allocator; // autofix
-    _ = scan_result; // autofix
-    _ = url; // autofix
-    _ = writer; // autofix
+pub fn writeIssuesCi(scan_result: ScanResult, config: Config, writer: *Writer) !void {
+    for (scan_result.errors.items) |issue| try emitCommand(writer, "error", issue, config.url);
+    for (scan_result.warnings.items) |issue| try emitCommand(writer, "warning", issue, config.url);
+    try writer.flush();
+}
 
+fn emitCommand(
+    writer: *Writer,
+    level: []const u8,
+    issue: ScanResult.Issue,
+    url: []const u8,
+) !void {
+    try writer.print("::{s} title={s}::", .{ level, issue.schema.label() });
+    try writeCiEscaped(writer, url);
+    try writer.print(" — {s} `", .{issue.tag.label()});
+    try writeCiEscaped(writer, issue.field);
+    try writer.writeAll("`\n");
+}
+
+/// Percent-encode the three characters that workflow-command parsers
+/// on GitHub Actions and Forgejo Actions treat as control: `%`, `\r`, `\n`.
+/// Schema labels and tag labels are hardcoded and safe; only user-controlled
+/// inputs (URL, field) go through this.
+fn writeCiEscaped(writer: *Writer, s: []const u8) !void {
+    for (s) |c| switch (c) {
+        '%' => try writer.writeAll("%25"),
+        '\r' => try writer.writeAll("%0D"),
+        '\n' => try writer.writeAll("%0A"),
+        else => try writer.writeByte(c),
+    };
 }
 
 pub fn writeIssuesJson(scan_result: ScanResult, config: Config, writer: *Writer) !void {
@@ -70,7 +94,7 @@ fn writeIssueJson(
     try w.endObject();
 }
 
-pub fn writeIssuesHuman(allocator: Allocator, scan_result: ScanResult, url: []const u8, writer: *Writer) !void {
+pub fn writeIssuesHuman(allocator: Allocator, scan_result: ScanResult, config: Config, writer: *Writer) !void {
     var markdown_builder: MarkdownBuilder = .init(allocator);
     defer markdown_builder.deinit();
 
@@ -78,9 +102,9 @@ pub fn writeIssuesHuman(allocator: Allocator, scan_result: ScanResult, url: []co
     defer allocator.free(issues);
 
     if (issues.len == 0) {
-        try markdown_builder.print("# ✅ {s}\n", .{url});
+        try markdown_builder.print("# ✅ {s}\n", .{config.url});
     } else {
-        try markdown_builder.print("# Checking {s}\n", .{url});
+        try markdown_builder.print("# Checking {s}\n", .{config.url});
 
         var current_schema: ?Schema = null;
 
