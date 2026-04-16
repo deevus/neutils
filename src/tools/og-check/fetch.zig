@@ -12,10 +12,16 @@ pub fn getBodyAlloc(allocator: Allocator, uri: Uri) ![]const u8 {
         .location = .{ .uri = uri },
         .method = .GET,
         .response_writer = &body.writer,
-        .extra_headers = &.{.{
-            .name = "accept",
-            .value = "text/html,application/xhtml+xml",
-        }},
+        .extra_headers = &.{
+            .{
+                .name = "accept",
+                .value = "text/html,application/xhtml+xml",
+            },
+            .{
+                .name = "user-agent",
+                .value = "og-check/" ++ build_options.version ++ " (+https://github.com/deevus/neutils)",
+            },
+        },
     });
 
     if (result.status != .ok) {
@@ -30,3 +36,5 @@ const Allocator = std.mem.Allocator;
 const Client = std.http.Client;
 const Uri = std.Uri;
 const Writer = std.Io.Writer;
+
+const build_options = @import("build_options");
