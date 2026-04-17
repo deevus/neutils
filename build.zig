@@ -98,8 +98,32 @@ pub fn build(b: *std.Build) !void {
     const build_options = b.addOptions();
     build_options.addOption([]const u8, "version", getVersion(optimize));
 
-    const test_all_step = b.step("test", "Run all tool tests");
+    const test_all_step = b.step("test", "Run all tests");
 
+    // codegen
+    const gen_html_entities = createExecutable(b, "gen-html-entities", .{
+        .mod_opts = .{
+            .root_source_file = b.path("build/gen_html_entities.zig"),
+            .target = target,
+            .optimize = optimize,
+        },
+        .test_all_step = test_all_step,
+    });
+
+    const whatwg_html = b.dependency("whatwg_html", .{});
+
+    const gen_html_entities_run = b.addRunArtifact(gen_html_entities);
+    gen_html_entities_run.expectExitCode(0);
+    gen_html_entities_run.addFileArg(whatwg_html.path("entities/out/entities.json"));
+    const html_entities_output = gen_html_entities_run.addOutputFileArg("html_entities.zig");
+
+    const html_entities_lib = b.createModule(.{
+        .root_source_file = html_entities_output,
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // tools
     var tools_dir = std.fs.cwd().openDir("src/tools", .{ .iterate = true }) catch {
         return;
     };
@@ -116,7 +140,7 @@ pub fn build(b: *std.Build) !void {
         const tool_name = std.fs.path.dirname(entry.path) orelse continue;
         const path = b.fmt("src/tools/{s}/{s}", .{ tool_name, entry.basename });
 
-        createExecutable(b, tool_name, .{
+        var exe = createExecutable(b, tool_name, .{
             .mod_opts = .{
                 .root_source_file = b.path(path),
                 .target = target,
@@ -125,6 +149,10 @@ pub fn build(b: *std.Build) !void {
             .build_opts = build_options,
             .test_all_step = test_all_step,
         });
+
+        if (std.mem.eql(u8, tool_name, "og-check")) {
+            exe.root_module.addImport("html_entities", html_entities_lib);
+        }
     }
 
     // register tests for libs
@@ -173,13 +201,17 @@ fn getVersion(optimize: std.builtin.OptimizeMode) []const u8 {
 
 const ExeOptions = struct {
     mod_opts: std.Build.Module.CreateOptions,
-    build_opts: *std.Build.Step.Options,
+    build_opts: ?*std.Build.Step.Options = null,
     test_all_step: *std.Build.Step,
+    install_opts: std.Build.Step.InstallArtifact.Options = .{},
 };
 
-fn createExecutable(b: *std.Build, name: []const u8, options: ExeOptions) void {
+fn createExecutable(b: *std.Build, name: []const u8, options: ExeOptions) *std.Build.Step.Compile {
     const mod = b.createModule(options.mod_opts);
-    mod.addOptions("build_options", options.build_opts);
+
+    if (options.build_opts) |build_opts| {
+        mod.addOptions("build_options", build_opts);
+    }
 
     const target = options.mod_opts.target orelse b.standardTargetOptions(.{});
     const optimize = options.mod_opts.optimize orelse b.standardOptimizeOption(.{});
@@ -191,7 +223,7 @@ fn createExecutable(b: *std.Build, name: []const u8, options: ExeOptions) void {
         .root_module = mod,
     });
 
-    b.installArtifact(exe);
+    b.getInstallStep().dependOn(&b.addInstallArtifact(exe, options.install_opts).step);
 
     const build_step = b.step(name, b.fmt("Build {s}", .{name}));
     build_step.dependOn(&b.addInstallArtifact(exe, .{}).step);
@@ -214,4 +246,6 @@ fn createExecutable(b: *std.Build, name: []const u8, options: ExeOptions) void {
     test_step.dependOn(&test_run.step);
 
     options.test_all_step.dependOn(test_step);
+
+    return exe;
 }
