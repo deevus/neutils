@@ -114,47 +114,17 @@ pub fn build(b: *std.Build) !void {
         if (std.mem.count(u8, entry.path, &.{std.fs.path.sep}) != 1) continue;
 
         const tool_name = std.fs.path.dirname(entry.path) orelse continue;
-
         const path = b.fmt("src/tools/{s}/{s}", .{ tool_name, entry.basename });
 
-        const mod = b.createModule(.{
-            .root_source_file = b.path(path),
-            .target = target,
-            .optimize = optimize,
+        createExecutable(b, tool_name, .{
+            .mod_opts = .{
+                .root_source_file = b.path(path),
+                .target = target,
+                .optimize = optimize,
+            },
+            .build_opts = build_options,
+            .test_all_step = test_all_step,
         });
-
-        mod.addOptions("build_options", build_options);
-
-        resolveDeps(b, mod, target, optimize, dependency_map.get(tool_name) orelse default_deps);
-
-        const exe = b.addExecutable(.{
-            .name = tool_name,
-            .root_module = mod,
-        });
-
-        b.installArtifact(exe);
-
-        const build_step = b.step(tool_name, b.fmt("Build {s}", .{tool_name}));
-        build_step.dependOn(&b.addInstallArtifact(exe, .{}).step);
-
-        const run_cmd = b.addRunArtifact(exe);
-        run_cmd.step.dependOn(b.getInstallStep());
-        if (b.args) |args| {
-            run_cmd.addArgs(args);
-        }
-
-        const run_step = b.step(b.fmt("run-{s}", .{tool_name}), b.fmt("Run {s}", .{tool_name}));
-        run_step.dependOn(&run_cmd.step);
-
-        const unit_tests = b.addTest(.{
-            .root_module = mod,
-        });
-
-        const test_run = b.addRunArtifact(unit_tests);
-        const test_step = b.step(b.fmt("test-{s}", .{tool_name}), b.fmt("Test {s}", .{tool_name}));
-        test_step.dependOn(&test_run.step);
-
-        test_all_step.dependOn(test_step);
     }
 
     // register tests for libs
@@ -199,4 +169,49 @@ fn getVersion(optimize: std.builtin.OptimizeMode) []const u8 {
         return std.fmt.comptimePrint("{d}.{d}.{d}-dev", .{ semver.major, semver.minor, semver.patch + 1 });
     }
     return BuildZigZon.version;
+}
+
+const ExeOptions = struct {
+    mod_opts: std.Build.Module.CreateOptions,
+    build_opts: *std.Build.Step.Options,
+    test_all_step: *std.Build.Step,
+};
+
+fn createExecutable(b: *std.Build, name: []const u8, options: ExeOptions) void {
+    const mod = b.createModule(options.mod_opts);
+    mod.addOptions("build_options", options.build_opts);
+
+    const target = options.mod_opts.target orelse b.standardTargetOptions(.{});
+    const optimize = options.mod_opts.optimize orelse b.standardOptimizeOption(.{});
+
+    resolveDeps(b, mod, target, optimize, dependency_map.get(name) orelse default_deps);
+
+    const exe = b.addExecutable(.{
+        .name = name,
+        .root_module = mod,
+    });
+
+    b.installArtifact(exe);
+
+    const build_step = b.step(name, b.fmt("Build {s}", .{name}));
+    build_step.dependOn(&b.addInstallArtifact(exe, .{}).step);
+
+    const run_cmd = b.addRunArtifact(exe);
+    run_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_cmd.addArgs(args);
+    }
+
+    const run_step = b.step(b.fmt("run-{s}", .{name}), b.fmt("Run {s}", .{name}));
+    run_step.dependOn(&run_cmd.step);
+
+    const unit_tests = b.addTest(.{
+        .root_module = mod,
+    });
+
+    const test_run = b.addRunArtifact(unit_tests);
+    const test_step = b.step(b.fmt("test-{s}", .{name}), b.fmt("Test {s}", .{name}));
+    test_step.dependOn(&test_run.step);
+
+    options.test_all_step.dependOn(test_step);
 }
