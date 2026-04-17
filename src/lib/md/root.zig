@@ -1,1 +1,5 @@
-pub const MarkdownBuilder = @import("MarkdownBuilder.zig");
+pub const Document = @import("Document.zig");
+
+comptime {
+    @import("std").testing.refAllDeclsRecursive(@This());
+}
