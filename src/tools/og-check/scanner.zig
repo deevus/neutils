@@ -1,12 +1,14 @@
 pub const Meta = struct {
     raw: []const u8 = "",
     key: []const u8 = "",
-    value: Value = .{},
+    value: Value = .empty,
     namespace: Namespace = .html,
 
     const init: Meta = .{};
 
     pub const Value = struct {
+        const empty: Value = .{};
+
         raw: []const u8 = "",
 
         pub fn init(value: []const u8) Value {
