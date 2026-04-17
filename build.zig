@@ -108,6 +108,9 @@ pub fn build(b: *std.Build) !void {
             .optimize = optimize,
         },
         .test_all_step = test_all_step,
+        .install_opts = .{
+            .dest_dir = .{ .override = .{ .custom = "codegen" } },
+        },
     });
 
     const whatwg_html = b.dependency("whatwg_html", .{});
