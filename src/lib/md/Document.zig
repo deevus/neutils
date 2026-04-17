@@ -1,5 +1,9 @@
-//! Builds a markdown document with context-aware escaping for user-controlled
-//! content. The sequence of method calls must follow this grammar:
+//! Builds a markdown document into a caller-supplied `std.Io.Writer` with
+//! context-aware escaping for user-controlled content. Mirrors the shape of
+//! `std.json.Stringify`: the caller owns the writer, this struct only holds
+//! transient grammar state.
+//!
+//! The sequence of method calls must follow this grammar:
 //!
 //! ```
 //! <document>  = <block>*
@@ -20,15 +24,10 @@
 
 const Document = @This();
 
-writer: AllocatingWriter,
+writer: *Writer,
 state: State = .document,
 block_stack: [16]Block = undefined,
 block_depth: u8 = 0,
-
-pub const RenderFormat = enum {
-    plain,
-    pretty,
-};
 
 const State = enum {
     document,
@@ -46,14 +45,8 @@ const Block = enum {
     table_row,
 };
 
-pub fn init(allocator: Allocator) Document {
-    return .{
-        .writer = AllocatingWriter.init(allocator),
-    };
-}
-
-pub fn deinit(self: *Document) void {
-    self.writer.deinit();
+pub fn init(writer: *Writer) Document {
+    return .{ .writer = writer };
 }
 
 // ---------------------------------------------------------------------------
@@ -69,9 +62,8 @@ pub fn heading(self: *Document, level: u3, text: []const u8) !void {
 pub fn beginHeading(self: *Document, level: u3) !void {
     assert(self.state == .document);
     assert(level >= 1 and level <= 6);
-    const w = self.rawWriter();
-    for (0..level) |_| try w.writeByte('#');
-    try w.writeByte(' ');
+    for (0..level) |_| try self.writer.writeByte('#');
+    try self.writer.writeByte(' ');
     self.pushBlock(.heading);
     self.state = .block_inline;
 }
@@ -79,7 +71,7 @@ pub fn beginHeading(self: *Document, level: u3) !void {
 pub fn endHeading(self: *Document) !void {
     assert(self.state == .block_inline);
     assert(self.currentBlock() == .heading);
-    try self.rawWriter().writeAll("\n\n");
+    try self.writer.writeAll("\n\n");
     self.popBlock(.heading);
     self.state = .document;
 }
@@ -93,7 +85,7 @@ pub fn beginParagraph(self: *Document) !void {
 pub fn endParagraph(self: *Document) !void {
     assert(self.state == .block_inline);
     assert(self.currentBlock() == .paragraph);
-    try self.rawWriter().writeAll("\n\n");
+    try self.writer.writeAll("\n\n");
     self.popBlock(.paragraph);
     self.state = .document;
 }
@@ -106,14 +98,14 @@ pub fn beginBulletList(self: *Document) !void {
 pub fn endBulletList(self: *Document) !void {
     assert(self.state == .document);
     assert(self.currentBlock() == .list);
-    try self.rawWriter().writeByte('\n');
+    try self.writer.writeByte('\n');
     self.popBlock(.list);
 }
 
 pub fn beginListItem(self: *Document) !void {
     assert(self.state == .document);
     assert(self.currentBlock() == .list);
-    try self.rawWriter().writeAll(" - ");
+    try self.writer.writeAll(" - ");
     self.pushBlock(.list_item);
     self.state = .block_inline;
 }
@@ -121,7 +113,7 @@ pub fn beginListItem(self: *Document) !void {
 pub fn endListItem(self: *Document) !void {
     assert(self.state == .block_inline);
     assert(self.currentBlock() == .list_item);
-    try self.rawWriter().writeByte('\n');
+    try self.writer.writeByte('\n');
     self.popBlock(.list_item);
     self.state = .document;
 }
@@ -129,35 +121,34 @@ pub fn endListItem(self: *Document) !void {
 pub fn beginTable(self: *Document, headers: []const []const u8) !void {
     assert(self.state == .document);
     self.pushBlock(.table);
-    const w = self.rawWriter();
 
     // Header row (escape headers in table-cell context just in case).
     self.state = .table_row;
-    try w.writeByte('|');
+    try self.writer.writeByte('|');
     for (headers) |h| {
         try self.writeEscaped(h);
-        try w.writeByte('|');
+        try self.writer.writeByte('|');
     }
-    try w.writeByte('\n');
+    try self.writer.writeByte('\n');
     self.state = .document;
 
     // Separator row.
-    try w.writeByte('|');
-    for (headers) |_| try w.writeAll("-|");
-    try w.writeByte('\n');
+    try self.writer.writeByte('|');
+    for (headers) |_| try self.writer.writeAll("-|");
+    try self.writer.writeByte('\n');
 }
 
 pub fn endTable(self: *Document) !void {
     assert(self.state == .document);
     assert(self.currentBlock() == .table);
-    try self.rawWriter().writeByte('\n');
+    try self.writer.writeByte('\n');
     self.popBlock(.table);
 }
 
 pub fn beginRow(self: *Document) !void {
     assert(self.state == .document);
     assert(self.currentBlock() == .table);
-    try self.rawWriter().writeByte('|');
+    try self.writer.writeByte('|');
     self.pushBlock(.table_row);
     self.state = .table_row;
 }
@@ -165,7 +156,7 @@ pub fn beginRow(self: *Document) !void {
 pub fn endRow(self: *Document) !void {
     assert(self.state == .table_row);
     assert(self.currentBlock() == .table_row);
-    try self.rawWriter().writeByte('\n');
+    try self.writer.writeByte('\n');
     self.popBlock(.table_row);
     self.state = .document;
 }
@@ -173,7 +164,7 @@ pub fn endRow(self: *Document) !void {
 pub fn cell(self: *Document, text: []const u8) !void {
     assert(self.state == .table_row);
     try self.writeEscaped(text);
-    try self.rawWriter().writeByte('|');
+    try self.writer.writeByte('|');
 }
 
 // ---------------------------------------------------------------------------
@@ -182,41 +173,37 @@ pub fn cell(self: *Document, text: []const u8) !void {
 
 pub fn bold(self: *Document, text: []const u8) !void {
     assert(self.state == .block_inline or self.state == .table_row);
-    const w = self.rawWriter();
-    try w.writeAll("**");
+    try self.writer.writeAll("**");
     try self.writeEscaped(text);
-    try w.writeAll("**");
+    try self.writer.writeAll("**");
 }
 
 pub fn code(self: *Document, text: []const u8) !void {
     assert(self.state == .block_inline or self.state == .table_row);
-    const w = self.rawWriter();
-    try w.writeByte('`');
+    try self.writer.writeByte('`');
     const prev = self.state;
     self.state = .code_span;
     try self.writeEscaped(text);
     self.state = prev;
-    try w.writeByte('`');
+    try self.writer.writeByte('`');
 }
 
 pub fn link(self: *Document, label: []const u8, url: []const u8) !void {
     assert(self.state == .block_inline or self.state == .table_row);
-    const w = self.rawWriter();
-    try w.writeByte('[');
+    try self.writer.writeByte('[');
     try self.writeEscaped(label);
-    try w.writeAll("](");
-    try writeUrl(w, url);
-    try w.writeByte(')');
+    try self.writer.writeAll("](");
+    try writeUrl(self.writer, url);
+    try self.writer.writeByte(')');
 }
 
 pub fn image(self: *Document, alt: []const u8, url: []const u8) !void {
     assert(self.state == .block_inline or self.state == .table_row);
-    const w = self.rawWriter();
-    try w.writeAll("![");
+    try self.writer.writeAll("![");
     try self.writeEscaped(alt);
-    try w.writeAll("](");
-    try writeUrl(w, url);
-    try w.writeByte(')');
+    try self.writer.writeAll("](");
+    try writeUrl(self.writer, url);
+    try self.writer.writeByte(')');
 }
 
 // ---------------------------------------------------------------------------
@@ -232,14 +219,14 @@ pub fn write(self: *Document, text: []const u8) !void {
 /// Pass bytes through without escaping. Caller is responsible for any
 /// escaping required by surrounding context.
 pub fn writeRaw(self: *Document, text: []const u8) !void {
-    try self.rawWriter().writeAll(text);
+    try self.writer.writeAll(text);
 }
 
 /// Format raw bytes into the output without escaping. Mirrors
 /// `std.json.Stringify.print`: the caller is responsible for ensuring the
 /// formatted result is valid markdown in the current context.
 pub fn print(self: *Document, comptime fmt: []const u8, args: anytype) !void {
-    try self.rawWriter().print(fmt, args);
+    try self.writer.print(fmt, args);
 }
 
 /// Format a value that implements `format(writer)` and escape its output
@@ -248,45 +235,13 @@ pub fn print(self: *Document, comptime fmt: []const u8, args: anytype) !void {
 pub fn writeFormatted(self: *Document, value: anytype) !void {
     assert(self.state != .document);
 
-    var escaping: EscapingWriter = .init(self.rawWriter(), self.state);
+    var escaping: EscapingWriter = .init(self.writer, self.state);
     try value.format(&escaping.writer);
-}
-
-// ---------------------------------------------------------------------------
-// Render
-// ---------------------------------------------------------------------------
-
-pub fn render(self: *Document, allocator: Allocator, comptime format: RenderFormat, writer: *Writer) !void {
-    const markdown_text = self.writer.written();
-
-    if (format == .plain) {
-        try writer.writeAll(markdown_text);
-        try writer.flush();
-        return;
-    }
-
-    var parser: Parser = .init(allocator, .{});
-    defer parser.deinit();
-    try parser.parseMarkdown(markdown_text);
-
-    const terminal_size: TermSize = zigdown.gfx.getTerminalSize() catch .{};
-
-    var renderer: ConsoleRenderer = .init(writer, allocator, .{
-        .termsize = terminal_size,
-    });
-    defer renderer.deinit();
-
-    try renderer.renderBlock(parser.document);
-    try writer.flush();
 }
 
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
-
-fn rawWriter(self: *Document) *Writer {
-    return &self.writer.writer;
-}
 
 fn currentBlock(self: *const Document) ?Block {
     if (self.block_depth == 0) return null;
@@ -306,7 +261,7 @@ fn popBlock(self: *Document, expected: Block) void {
 }
 
 fn writeEscaped(self: *Document, text: []const u8) !void {
-    try writeEscapedBytes(self.rawWriter(), self.state, text);
+    try writeEscapedBytes(self.writer, self.state, text);
 }
 
 fn writeEscapedBytes(w: *Writer, state: State, text: []const u8) !void {
@@ -397,17 +352,23 @@ fn writeUrl(w: *Writer, url: []const u8) !void {
 // Tests
 // ---------------------------------------------------------------------------
 
+fn testInit(aw: *Writer.Allocating) Document {
+    return .init(&aw.writer);
+}
+
 test "heading emits hashes and escapes inline specials" {
-    var doc: Document = .init(testing.allocator);
-    defer doc.deinit();
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    var doc: Document = testInit(&aw);
 
     try doc.heading(2, "# Hello *world*");
-    try testing.expectEqualStrings("## \\# Hello \\*world\\*\n\n", doc.writer.written());
+    try testing.expectEqualStrings("## \\# Hello \\*world\\*\n\n", aw.written());
 }
 
 test "paragraph with bold, code, link" {
-    var doc: Document = .init(testing.allocator);
-    defer doc.deinit();
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    var doc: Document = testInit(&aw);
 
     try doc.beginParagraph();
     try doc.bold("Type");
@@ -419,13 +380,14 @@ test "paragraph with bold, code, link" {
 
     try testing.expectEqualStrings(
         "**Type**: `og:image` see [here](https://example.com/a%20b)\n\n",
-        doc.writer.written(),
+        aw.written(),
     );
 }
 
 test "image emits ![alt](url) with URL encoding" {
-    var doc: Document = .init(testing.allocator);
-    defer doc.deinit();
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    var doc: Document = testInit(&aw);
 
     try doc.beginParagraph();
     try doc.image("a cat", "https://example.com/cat.png");
@@ -433,13 +395,14 @@ test "image emits ![alt](url) with URL encoding" {
 
     try testing.expectEqualStrings(
         "![a cat](https://example.com/cat.png)\n\n",
-        doc.writer.written(),
+        aw.written(),
     );
 }
 
 test "bullet list items escape inline specials" {
-    var doc: Document = .init(testing.allocator);
-    defer doc.deinit();
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    var doc: Document = testInit(&aw);
 
     try doc.beginBulletList();
 
@@ -455,13 +418,14 @@ test "bullet list items escape inline specials" {
 
     try testing.expectEqualStrings(
         " - first \\[one\\]\n - second \\*two\\*\n\n",
-        doc.writer.written(),
+        aw.written(),
     );
 }
 
 test "table escapes pipe, backslash, and newline in cells" {
-    var doc: Document = .init(testing.allocator);
-    defer doc.deinit();
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    var doc: Document = testInit(&aw);
 
     try doc.beginTable(&.{ "Type", "Key", "Value" });
 
@@ -478,13 +442,14 @@ test "table escapes pipe, backslash, and newline in cells" {
             "|-|-|-|\n" ++
             "|html|desc\u{FF5C}ription|line1<br>line2\\\\path|\n" ++
             "\n",
-        doc.writer.written(),
+        aw.written(),
     );
 }
 
 test "table cell drops carriage returns" {
-    var doc: Document = .init(testing.allocator);
-    defer doc.deinit();
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    var doc: Document = testInit(&aw);
 
     try doc.beginTable(&.{"Col"});
     try doc.beginRow();
@@ -494,13 +459,14 @@ test "table cell drops carriage returns" {
 
     try testing.expectEqualStrings(
         "|Col|\n|-|\n|a<br>b|\n\n",
-        doc.writer.written(),
+        aw.written(),
     );
 }
 
 test "writeFormatted routes custom format() through escape" {
-    var doc: Document = .init(testing.allocator);
-    defer doc.deinit();
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    var doc: Document = testInit(&aw);
 
     const Pipey = struct {
         pub fn format(_: @This(), w: *Writer) !void {
@@ -511,57 +477,53 @@ test "writeFormatted routes custom format() through escape" {
     try doc.beginTable(&.{"V"});
     try doc.beginRow();
     try doc.writeFormatted(Pipey{});
-    try doc.rawWriter().writeByte('|');
+    try doc.writer.writeByte('|');
     try doc.endRow();
     try doc.endTable();
 
     try testing.expectEqualStrings(
         "|V|\n|-|\n|a\u{FF5C}b\u{FF5C}c|\n\n",
-        doc.writer.written(),
+        aw.written(),
     );
 }
 
 test "code span strips backticks" {
-    var doc: Document = .init(testing.allocator);
-    defer doc.deinit();
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    var doc: Document = testInit(&aw);
 
     try doc.beginParagraph();
     try doc.code("a`b`c");
     try doc.endParagraph();
 
-    try testing.expectEqualStrings("`a b c`\n\n", doc.writer.written());
+    try testing.expectEqualStrings("`a b c`\n\n", aw.written());
 }
 
 test "writeRaw and print pass through without escaping" {
-    var doc: Document = .init(testing.allocator);
-    defer doc.deinit();
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    var doc: Document = testInit(&aw);
 
     try doc.writeRaw("# literal #\n\n");
     try doc.print("|{s}|\n", .{"x|y"});
 
-    try testing.expectEqualStrings("# literal #\n\n|x|y|\n", doc.writer.written());
+    try testing.expectEqualStrings("# literal #\n\n|x|y|\n", aw.written());
 }
 
 test "heading with mixed inline content" {
-    var doc: Document = .init(testing.allocator);
-    defer doc.deinit();
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+    var doc: Document = testInit(&aw);
 
     try doc.beginHeading(1);
     try doc.write("Title: ");
     try doc.code("og:title");
     try doc.endHeading();
 
-    try testing.expectEqualStrings("# Title: `og:title`\n\n", doc.writer.written());
+    try testing.expectEqualStrings("# Title: `og:title`\n\n", aw.written());
 }
 
 const std = @import("std");
 const assert = std.debug.assert;
 const testing = std.testing;
-const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
-const AllocatingWriter = Writer.Allocating;
-
-const zigdown = @import("zigdown");
-const Parser = zigdown.Parser;
-const TermSize = zigdown.gfx.TermSize;
-const ConsoleRenderer = zigdown.ConsoleRenderer;

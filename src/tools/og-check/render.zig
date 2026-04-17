@@ -95,8 +95,9 @@ fn writeIssueJson(
 }
 
 pub fn writeIssuesHuman(allocator: Allocator, scan_result: ScanResult, config: Config, writer: *Writer) !void {
-    var doc: Document = .init(allocator);
-    defer doc.deinit();
+    var aw: AllocatingWriter = .init(allocator);
+    defer aw.deinit();
+    var doc: Document = .init(&aw.writer);
 
     const issues = try scan_result.getIssuesSorted(allocator);
     defer allocator.free(issues);
@@ -153,12 +154,13 @@ pub fn writeIssuesHuman(allocator: Allocator, scan_result: ScanResult, config: C
         try doc.endParagraph();
     }
 
-    try doc.render(allocator, .pretty, writer);
+    try md.renderPretty(allocator, aw.written(), writer);
 }
 
 pub fn writeOpenGraph(allocator: Allocator, scan_result: ScanResult, stdout: *Writer) !void {
-    var doc: Document = .init(allocator);
-    defer doc.deinit();
+    var aw: AllocatingWriter = .init(allocator);
+    defer aw.deinit();
+    var doc: Document = .init(&aw.writer);
 
     if (scan_result.findByKey("og:title")) |title| {
         try doc.beginHeading(1);
@@ -219,12 +221,13 @@ pub fn writeOpenGraph(allocator: Allocator, scan_result: ScanResult, stdout: *Wr
         try doc.endParagraph();
     }
 
-    try doc.render(allocator, .pretty, stdout);
+    try md.renderPretty(allocator, aw.written(), stdout);
 }
 
 pub fn writeTwitter(allocator: Allocator, scan_result: ScanResult, stdout: *Writer) !void {
-    var doc: Document = .init(allocator);
-    defer doc.deinit();
+    var aw: AllocatingWriter = .init(allocator);
+    defer aw.deinit();
+    var doc: Document = .init(&aw.writer);
 
     if (scan_result.findByKey("twitter:title") orelse scan_result.findByKey("og:title")) |title| {
         try doc.beginHeading(1);
@@ -284,7 +287,7 @@ pub fn writeTwitter(allocator: Allocator, scan_result: ScanResult, stdout: *Writ
         try doc.endParagraph();
     }
 
-    try doc.render(allocator, .pretty, stdout);
+    try md.renderPretty(allocator, aw.written(), stdout);
 }
 
 pub fn writeJson(scan_result: ScanResult, writer: *Writer) !void {
@@ -335,8 +338,9 @@ pub fn writeJson(scan_result: ScanResult, writer: *Writer) !void {
 }
 
 pub fn writeTable(allocator: Allocator, scan_result: ScanResult, writer: *Writer) !void {
-    var doc: Document = .init(allocator);
-    defer doc.deinit();
+    var aw: AllocatingWriter = .init(allocator);
+    defer aw.deinit();
+    var doc: Document = .init(&aw.writer);
 
     const tags = scan_result.meta_tags;
 
@@ -355,7 +359,7 @@ pub fn writeTable(allocator: Allocator, scan_result: ScanResult, writer: *Writer
         try doc.endTable();
     }
 
-    try doc.render(allocator, .pretty, writer);
+    try md.renderPretty(allocator, aw.written(), writer);
 }
 
 const std = @import("std");
