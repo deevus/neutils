@@ -13,6 +13,31 @@ const Dependency = union(enum) {
         deps: []const Dependency = &.{},
     },
 
+    pub fn resolveModule(
+        self: Dependency,
+        b: *std.Build,
+        target: std.Build.ResolvedTarget,
+        optimize: std.builtin.OptimizeMode,
+    ) *std.Build.Module {
+        switch (self) {
+            .exact => |name| {
+                return b.dependency(name, .{ .target = target, .optimize = optimize }).module(name);
+            },
+            .module => |m| {
+                return b.dependency(m.name, .{ .target = target, .optimize = optimize }).module(m.module);
+            },
+            .lib => |l| {
+                const lib_mod = b.createModule(.{
+                    .root_source_file = b.path(l.path),
+                    .target = target,
+                    .optimize = optimize,
+                });
+                resolveDeps(b, lib_mod, target, optimize, l.deps);
+                return lib_mod;
+            },
+        }
+    }
+
     const cli: Dependency = .{ .exact = "cli" };
     const humanize: Dependency = .{ .exact = "humanize" };
     const kewpie: Dependency = .{ .exact = "kewpie" };
@@ -134,7 +159,7 @@ pub fn build(b: *std.Build) !void {
 
     // register tests for libs
     for (libs) |dep| {
-        const mod = resolveMod(b, dep, target, optimize);
+        const mod = dep.resolveModule(b, target, optimize);
 
         const unit_tests = b.addTest(.{
             .root_module = mod,
@@ -148,31 +173,6 @@ pub fn build(b: *std.Build) !void {
     }
 }
 
-fn resolveMod(
-    b: *std.Build,
-    dependency: Dependency,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-) *std.Build.Module {
-    switch (dependency) {
-        .exact => |name| {
-            return b.dependency(name, .{ .target = target, .optimize = optimize }).module(name);
-        },
-        .module => |m| {
-            return b.dependency(m.name, .{ .target = target, .optimize = optimize }).module(m.module);
-        },
-        .lib => |l| {
-            const lib_mod = b.createModule(.{
-                .root_source_file = b.path(l.path),
-                .target = target,
-                .optimize = optimize,
-            });
-            resolveDeps(b, lib_mod, target, optimize, l.deps);
-            return lib_mod;
-        },
-    }
-}
-
 fn resolveDeps(
     b: *std.Build,
     mod: *std.Build.Module,
@@ -181,7 +181,7 @@ fn resolveDeps(
     deps: []const Dependency,
 ) void {
     for (deps) |dep| {
-        const dep_mod = resolveMod(b, dep, target, optimize);
+        const dep_mod = dep.resolveModule(b, target, optimize);
 
         const mod_name = switch (dep) {
             .exact => |name| name,
