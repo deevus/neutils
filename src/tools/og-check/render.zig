@@ -95,110 +95,196 @@ fn writeIssueJson(
 }
 
 pub fn writeIssuesHuman(allocator: Allocator, scan_result: ScanResult, config: Config, writer: *Writer) !void {
-    var markdown_builder: MarkdownBuilder = .init(allocator);
-    defer markdown_builder.deinit();
+    var doc: Document = .init(allocator);
+    defer doc.deinit();
 
     const issues = try scan_result.getIssuesSorted(allocator);
     defer allocator.free(issues);
 
     if (issues.len == 0) {
-        try markdown_builder.print("# ✅ {s}\n", .{config.url});
+        try doc.beginHeading(1);
+        try doc.write("✅ ");
+        try doc.write(config.url);
+        try doc.endHeading();
     } else {
-        try markdown_builder.print("# Checking {s}\n", .{config.url});
+        try doc.beginHeading(1);
+        try doc.write("Checking ");
+        try doc.write(config.url);
+        try doc.endHeading();
 
         var current_schema: ?Schema = null;
+        var list_open = false;
 
         for (issues) |issue| {
             if (current_schema != issue.schema) {
+                if (list_open) {
+                    try doc.endBulletList();
+                    list_open = false;
+                }
                 current_schema = issue.schema;
-                try markdown_builder.print("\n## {s}\n\n", .{issue.schema.label()});
+                try doc.heading(2, issue.schema.label());
             }
 
-            try markdown_builder.print(" - {s} {s} `{s}`\n", .{ issue.severity.glyph(), issue.tag.label(), issue.field });
+            if (!list_open) {
+                try doc.beginBulletList();
+                list_open = true;
+            }
+
+            try doc.beginListItem();
+            try doc.write(issue.severity.glyph());
+            try doc.write(" ");
+            try doc.write(issue.tag.label());
+            try doc.write(" ");
+            try doc.code(issue.field);
+            try doc.endListItem();
         }
 
-        try markdown_builder.print("\n**errors: {d}, warnings: {d}**\n", .{ scan_result.errors.items.len, scan_result.warnings.items.len });
+        if (list_open) try doc.endBulletList();
+
+        const stats = try std.fmt.allocPrint(
+            allocator,
+            "errors: {d}, warnings: {d}",
+            .{ scan_result.errors.items.len, scan_result.warnings.items.len },
+        );
+        defer allocator.free(stats);
+
+        try doc.beginParagraph();
+        try doc.bold(stats);
+        try doc.endParagraph();
     }
 
-    try markdown_builder.render(allocator, .pretty, writer);
+    try doc.render(allocator, .pretty, writer);
 }
 
 pub fn writeOpenGraph(allocator: Allocator, scan_result: ScanResult, stdout: *Writer) !void {
-    var markdown_builder: MarkdownBuilder = .init(allocator);
-    defer markdown_builder.deinit();
+    var doc: Document = .init(allocator);
+    defer doc.deinit();
 
     if (scan_result.findByKey("og:title")) |title| {
-        try markdown_builder.print("# Title: {f}\n\n", .{title.value});
+        try doc.beginHeading(1);
+        try doc.write("Title: ");
+        try doc.writeFormatted(title.value);
+        try doc.endHeading();
     }
 
     if (scan_result.findByKey("og:description")) |description| {
-        try markdown_builder.print("## Description\n\n{f}\n\n", .{description.value});
+        try doc.heading(2, "Description");
+        try doc.beginParagraph();
+        try doc.writeFormatted(description.value);
+        try doc.endParagraph();
     }
 
     if (scan_result.findByKey("og:site-name")) |site_name| {
-        try markdown_builder.print("## Site name: {f}\n\n", .{site_name.value});
+        try doc.beginHeading(2);
+        try doc.write("Site name: ");
+        try doc.writeFormatted(site_name.value);
+        try doc.endHeading();
     }
 
-    if (scan_result.findByKey("og:image")) |image| {
-        try markdown_builder.print("![Image]({s})\n\n", .{image.value.raw});
+    if (scan_result.findByKey("og:image")) |img| {
+        try doc.beginParagraph();
+        try doc.image("Image", img.value.raw);
+        try doc.endParagraph();
     }
 
     if (scan_result.findByKey("og:image:alt")) |image_alt| {
-        try markdown_builder.print("**Image Alt**: {f}\n\n", .{image_alt.value});
+        try doc.beginParagraph();
+        try doc.bold("Image Alt");
+        try doc.write(": ");
+        try doc.writeFormatted(image_alt.value);
+        try doc.endParagraph();
     }
 
     if (scan_result.findByKey("og:type")) |@"type"| {
-        try markdown_builder.print("**Type**: {s}\n\n", .{@"type".value.raw});
+        try doc.beginParagraph();
+        try doc.bold("Type");
+        try doc.write(": ");
+        try doc.write(@"type".value.raw);
+        try doc.endParagraph();
     }
 
     if (scan_result.findByKey("og:url")) |url| {
-        try markdown_builder.print("**URL**: [{0s}]({0s})\n\n", .{url.value.raw});
+        try doc.beginParagraph();
+        try doc.bold("URL");
+        try doc.write(": ");
+        try doc.link(url.value.raw, url.value.raw);
+        try doc.endParagraph();
     }
 
     if (scan_result.findByKey("og:locale")) |locale| {
-        try markdown_builder.print("**Locale**: {s}\n\n", .{locale.value.raw});
+        try doc.beginParagraph();
+        try doc.bold("Locale");
+        try doc.write(": ");
+        try doc.write(locale.value.raw);
+        try doc.endParagraph();
     }
 
-    try markdown_builder.render(allocator, .pretty, stdout);
+    try doc.render(allocator, .pretty, stdout);
 }
 
 pub fn writeTwitter(allocator: Allocator, scan_result: ScanResult, stdout: *Writer) !void {
-    var markdown_builder: MarkdownBuilder = .init(allocator);
-    defer markdown_builder.deinit();
+    var doc: Document = .init(allocator);
+    defer doc.deinit();
 
     if (scan_result.findByKey("twitter:title") orelse scan_result.findByKey("og:title")) |title| {
-        try markdown_builder.print("# Title: {f}\n\n", .{title.value});
+        try doc.beginHeading(1);
+        try doc.write("Title: ");
+        try doc.writeFormatted(title.value);
+        try doc.endHeading();
     }
 
     if (scan_result.findByKey("twitter:description") orelse scan_result.findByKey("og:description")) |description| {
-        try markdown_builder.print("## Description\n\n{f}\n\n", .{description.value});
+        try doc.heading(2, "Description");
+        try doc.beginParagraph();
+        try doc.writeFormatted(description.value);
+        try doc.endParagraph();
     }
 
     if (scan_result.findByKey("twitter:site")) |site| {
-        try markdown_builder.print("## Site: {f}\n\n", .{site.value});
+        try doc.beginHeading(2);
+        try doc.write("Site: ");
+        try doc.writeFormatted(site.value);
+        try doc.endHeading();
     }
 
     if (scan_result.findByKey("twitter:creator")) |creator| {
-        try markdown_builder.print("## Creator: {f}\n\n", .{creator.value});
+        try doc.beginHeading(2);
+        try doc.write("Creator: ");
+        try doc.writeFormatted(creator.value);
+        try doc.endHeading();
     }
 
-    if (scan_result.findByKey("twitter:image") orelse scan_result.findByKey("og:image")) |image| {
-        try markdown_builder.print("![Image]({s})\n\n", .{image.value.raw});
+    if (scan_result.findByKey("twitter:image") orelse scan_result.findByKey("og:image")) |img| {
+        try doc.beginParagraph();
+        try doc.image("Image", img.value.raw);
+        try doc.endParagraph();
     }
 
     if (scan_result.findByKey("twitter:image:alt") orelse scan_result.findByKey("og:image:alt")) |image_alt| {
-        try markdown_builder.print("**Image Alt**: {f}\n\n", .{image_alt.value});
+        try doc.beginParagraph();
+        try doc.bold("Image Alt");
+        try doc.write(": ");
+        try doc.writeFormatted(image_alt.value);
+        try doc.endParagraph();
     }
 
     if (scan_result.findByKey("twitter:card")) |card| {
-        try markdown_builder.print("**Card**: {s}\n\n", .{card.value.raw});
+        try doc.beginParagraph();
+        try doc.bold("Card");
+        try doc.write(": ");
+        try doc.write(card.value.raw);
+        try doc.endParagraph();
     }
 
     if (scan_result.findByKey("twitter:url") orelse scan_result.findByKey("og:url")) |url| {
-        try markdown_builder.print("**URL**: [{0s}]({0s})\n", .{url.value.raw});
+        try doc.beginParagraph();
+        try doc.bold("URL");
+        try doc.write(": ");
+        try doc.link(url.value.raw, url.value.raw);
+        try doc.endParagraph();
     }
 
-    try markdown_builder.render(allocator, .pretty, stdout);
+    try doc.render(allocator, .pretty, stdout);
 }
 
 pub fn writeJson(scan_result: ScanResult, writer: *Writer) !void {
@@ -249,21 +335,27 @@ pub fn writeJson(scan_result: ScanResult, writer: *Writer) !void {
 }
 
 pub fn writeTable(allocator: Allocator, scan_result: ScanResult, writer: *Writer) !void {
-    var markdown_builder: MarkdownBuilder = .init(allocator);
-    defer markdown_builder.deinit();
+    var doc: Document = .init(allocator);
+    defer doc.deinit();
 
     const tags = scan_result.meta_tags;
 
     if (tags.items.len > 0) {
-        try markdown_builder.writeAll("|Type|Key|Value|\n");
-        try markdown_builder.writeAll("|-|-|-|\n");
+        try doc.beginTable(&.{ "Type", "Key", "Value" });
+
+        for (tags.items) |meta_tag| {
+            try doc.beginRow();
+            try doc.cell(meta_tag.namespace.label());
+            try doc.cell(meta_tag.key);
+            try doc.writeFormatted(meta_tag.value);
+            try doc.writeRaw("|");
+            try doc.endRow();
+        }
+
+        try doc.endTable();
     }
 
-    for (tags.items) |meta_tag| {
-        try markdown_builder.print("|{s}|{s}|{f}|\n", .{ meta_tag.namespace.label(), meta_tag.key, meta_tag.value });
-    }
-
-    try markdown_builder.render(allocator, .pretty, writer);
+    try doc.render(allocator, .pretty, writer);
 }
 
 const std = @import("std");
@@ -278,7 +370,7 @@ const ScanResult = scanner.ScanResult;
 const Schema = ScanResult.Schema;
 
 const md = @import("md");
-const MarkdownBuilder = md.MarkdownBuilder;
+const Document = md.Document;
 
 const Config = @import("Config.zig");
 
