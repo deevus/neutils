@@ -41,8 +41,8 @@ pub const Meta = struct {
                             i += j + 1;
                             continue;
                         }
-                    } else if (html_entities.get(self.raw[i..(i + j + 1)])) |entity| {
-                        try writer.writeAll(entity.characters);
+                    } else if (html_entities.get(self.raw[i..(i + j + 1)])) |str| {
+                        try writer.writeAll(str);
                         i += j + 1;
                         continue;
                     }
@@ -415,7 +415,7 @@ const ArrayList = std.ArrayListUnmanaged;
 const StaticStringMap = std.StaticStringMap;
 const Writer = std.Io.Writer;
 
-const html_entities = @import("html_entities").entities;
+const html_entities = @import("html_entities").characters;
 
 fn expectFormat(expected: []const u8, raw: []const u8) !void {
     var out: Writer.Allocating = .init(testing.allocator);

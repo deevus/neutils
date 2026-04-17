@@ -5,6 +5,23 @@ const Config = struct {
 
 var config: Config = .{};
 
+const template =
+    \\const std = @import("std");
+    \\
+    \\pub const Codepoint = enum(u21) {{_}};
+    \\
+    \\pub const Entity = struct {{
+    \\    codepoints: []const Codepoint,
+    \\    characters: []const u8,
+    \\}};
+    \\
+    \\pub const combined: std.StaticStringMap(Entity) = .initComptime({s});
+    \\
+    \\pub const characters: std.StaticStringMap([]const u8) = .initComptime({s});
+    \\
+    \\pub const codepoints: std.StaticStringMap([]const Codepoint) = .initComptime({s});
+;
+
 pub fn main() !void {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
@@ -70,49 +87,60 @@ pub fn codegen() !void {
     var out_stream = output.writer(&out_buf);
     var writer = &out_stream.interface;
 
-    try writer.writeAll(
-        \\const std = @import("std");
-        \\
-        \\pub const Entity = struct {
-        \\    codepoints: []const u21,
-        \\    characters: []const u8,
-        \\};
-        \\
-        \\pub const entities: std.StaticStringMap(Entity) = .initComptime(.{
-        \\
-    );
+    var combined_alloc: Writer.Allocating = .init(allocator);
+    defer combined_alloc.deinit();
+
+    var characters_alloc: Writer.Allocating = .init(allocator);
+    defer characters_alloc.deinit();
+
+    var codepoints_alloc: Writer.Allocating = .init(allocator);
+    defer codepoints_alloc.deinit();
+
+    try combined_alloc.writer.writeAll(".{\n");
+    try characters_alloc.writer.writeAll(".{\n");
+    try codepoints_alloc.writer.writeAll(".{\n");
 
     var iter = json.object.iterator();
     while (iter.next()) |entry| {
         const key = entry.key_ptr.*;
 
-        try writer.print("    .{{ \"{s}\", Entity{{ ", .{key});
+        try combined_alloc.writer.print("    .{{ \"{s}\", Entity{{ ", .{key});
+        try codepoints_alloc.writer.print("    .{{ \"{s}\", ", .{key});
+        try characters_alloc.writer.print("    .{{ \"{s}\", ", .{key});
 
         const value = entry.value_ptr.*;
 
-        try writer.writeAll(".codepoints = &[_]u21{");
         const codepoints = value.object.get("codepoints").?;
-        const codepoints_count = codepoints.array.items.len;
 
-        for (codepoints.array.items, 0..) |cp, i| {
-            try writer.print("{d}", .{cp.integer});
+        try combined_alloc.writer.writeAll(".codepoints = &[_]Codepoint{");
+        try codepoints_alloc.writer.writeAll("&[_]Codepoint{");
 
-            if (i < codepoints_count - 1) {
-                try writer.writeAll(", ");
-            }
+        for (codepoints.array.items) |cp| {
+            try combined_alloc.writer.print("@enumFromInt({d}), ", .{cp.integer});
+            try codepoints_alloc.writer.print("@enumFromInt({d}), ", .{cp.integer});
         }
-        try writer.writeAll("}, ");
+        try combined_alloc.writer.writeAll("}, ");
+        try codepoints_alloc.writer.writeAll("}, ");
 
         const characters = value.object.get("characters").?;
-        try writer.writeAll(".characters = ");
-        try writeZigStringLiteral(writer, characters.string);
+        try combined_alloc.writer.writeAll(".characters = ");
+        try writeZigStringLiteral(&combined_alloc.writer, characters.string);
+        try writeZigStringLiteral(&characters_alloc.writer, characters.string);
 
-        try writer.writeAll("} },\n");
+        try combined_alloc.writer.writeAll("} },\n");
+        try codepoints_alloc.writer.writeAll("},\n");
+        try characters_alloc.writer.writeAll(" },\n");
     }
 
-    try writer.writeAll(
-        \\});
-    );
+    try combined_alloc.writer.writeAll("}");
+    try characters_alloc.writer.writeAll("}");
+    try codepoints_alloc.writer.writeAll("}");
+
+    try writer.print(template, .{
+        combined_alloc.written(),
+        characters_alloc.written(),
+        codepoints_alloc.written(),
+    });
 
     try writer.flush();
 }
@@ -131,6 +159,7 @@ fn writeZigStringLiteral(writer: *std.Io.Writer, bytes: []const u8) !void {
 }
 
 const std = @import("std");
+const Writer = std.Io.Writer;
 
 const cli = @import("cli");
 const App = cli.App;
