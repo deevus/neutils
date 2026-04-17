@@ -22,6 +22,10 @@
             .url = "git+https://github.com/burdzwastaken/zig-humanize#bf713d8165f5fce4db01af5e680d21fc31b074b5",
             .hash = "humanize-0.0.5-xH2j9oHcAABixEpQnxZAi_btBp70H8-8OwkuUVM_XJ4e",
         },
+        .whatwg_html = .{
+            .url = "git+https://github.com/whatwg/html-build/#283a3531a61106d07d9a7d9fb3e6f3b9bfd33d70",
+            .hash = "N-V-__8AAC1yDQBe7ev1_AAguXlIl0g3dEFO_B-s5O_kJJI4",
+        },
     },
     .fingerprint = 0x8cf1dad9242eeacb,
     .paths = .{

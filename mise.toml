@@ -4,6 +4,7 @@ usage = "latest"
 "forgejo:tensorush/zq" = { version = "0.8.0", bin = "zq" }
 git-cliff = "latest"
 hyperfine = "latest"
+zls = "0.15.1"
 
 [tasks.demo-urlparse]
 dir = "src/tools/urlparse/demo"
