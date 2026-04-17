@@ -192,10 +192,11 @@ pub const Meta = struct {
                     .key => {
                         result.key = v;
 
-                        if (std.mem.startsWith(u8, v, "og:")) {
-                            result.namespace = .og;
-                        } else if (std.mem.startsWith(u8, v, "twitter:")) {
-                            result.namespace = .twitter;
+                        if (std.mem.indexOf(u8, v, ":")) |colon_index| {
+                            const prefix = v[0..colon_index];
+                            if (std.meta.stringToEnum(Meta.Namespace, prefix)) |ns| {
+                                result.namespace = ns;
+                            }
                         }
                     },
                     .value => result.value = .init(v),
