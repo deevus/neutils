@@ -18,14 +18,6 @@ pub const Meta = struct {
         }
 
         pub fn format(self: Value, writer: *Writer) !void {
-            const html_entities = std.StaticStringMap(u8).initComptime(.{
-                .{ "lt", '<' },
-                .{ "gt", '>' },
-                .{ "amp", '&' },
-                .{ "apos", '\'' },
-                .{ "quot", '"' },
-            });
-
             var i: usize = 0;
             while (i < self.raw.len) {
                 if (self.raw[i] == '&') if (std.mem.indexOf(u8, self.raw[i..], ";")) |j| {
@@ -49,8 +41,8 @@ pub const Meta = struct {
                             i += j + 1;
                             continue;
                         }
-                    } else if (html_entities.get(slice)) |d| {
-                        try writer.writeByte(d);
+                    } else if (html_entities.get(self.raw[i..(i + j + 1)])) |entity| {
+                        try writer.writeAll(entity.characters);
                         i += j + 1;
                         continue;
                     }
@@ -417,7 +409,73 @@ pub const ScanResult = struct {
 };
 
 const std = @import("std");
+const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayListUnmanaged;
 const StaticStringMap = std.StaticStringMap;
 const Writer = std.Io.Writer;
+
+const html_entities = @import("html_entities").entities;
+
+fn expectFormat(expected: []const u8, raw: []const u8) !void {
+    var out: Writer.Allocating = .init(testing.allocator);
+    defer out.deinit();
+
+    const value: Meta.Value = .init(raw);
+    try value.format(&out.writer);
+    try testing.expectEqualStrings(expected, out.written());
+}
+
+test "Value.format passes plain text through unchanged" {
+    try expectFormat("hello world", "hello world");
+}
+
+test "Value.format decodes decimal numeric entities" {
+    try expectFormat("ABC", "&#65;&#66;&#67;");
+}
+
+test "Value.format decodes hex numeric entities (lower and upper case prefix)" {
+    try expectFormat("AB", "&#x41;&#X42;");
+}
+
+test "Value.format encodes numeric codepoints as UTF-8" {
+    // U+2603 SNOWMAN → E2 98 83
+    try expectFormat("\xe2\x98\x83", "&#x2603;");
+}
+
+test "Value.format decodes common named entities" {
+    try expectFormat("AT&T <hello>", "AT&amp;T &lt;hello&gt;");
+}
+
+test "Value.format decodes named entity to multi-byte UTF-8" {
+    // &copy; → U+00A9 → C2 A9
+    try expectFormat("\xc2\xa9", "&copy;");
+}
+
+test "Value.format decodes named entity mapped to multiple codepoints" {
+    // &NotEqualTilde; → U+2242 U+0338 → E2 89 82 CC B8
+    try expectFormat("\xe2\x89\x82\xcc\xb8", "&NotEqualTilde;");
+}
+
+test "Value.format passes unknown named entities through unchanged" {
+    try expectFormat("&notarealentity;", "&notarealentity;");
+}
+
+test "Value.format passes a bare ampersand through" {
+    try expectFormat("A & B", "A & B");
+}
+
+test "Value.format leaves malformed numeric entities intact" {
+    try expectFormat("&#notanumber;", "&#notanumber;");
+}
+
+test "Value.format handles text mixed with entities" {
+    try expectFormat(
+        "Hello & welcome to A world",
+        "Hello &amp; welcome to &#65; world",
+    );
+}
+
+test "Value.format leaves an unterminated entity reference intact" {
+    try expectFormat("&amp no semicolon", "&amp no semicolon");
+}
