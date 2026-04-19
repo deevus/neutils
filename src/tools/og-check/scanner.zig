@@ -229,6 +229,7 @@ pub const ScanResult = struct {
         severity: Severity = .err,
         schema: Schema,
         field: []const u8,
+        reason: ?[]const u8 = null,
 
         pub const Severity = enum {
             err,
@@ -402,6 +403,7 @@ pub const ScanResult = struct {
                     .tag = .invalid_url,
                     .schema = schema,
                     .field = key,
+                    .reason = "not a valid URL or not absolute",
                 });
                 return;
             };
@@ -412,6 +414,7 @@ pub const ScanResult = struct {
                     .tag = .invalid_url,
                     .schema = schema,
                     .field = key,
+                    .reason = "must use http or https scheme",
                 });
                 return;
             }

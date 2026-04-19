@@ -16,7 +16,14 @@ fn emitCommand(
     try writeCiEscaped(writer, url);
     try writer.print(" — {s} `", .{issue.tag.label()});
     try writeCiEscaped(writer, issue.field);
-    try writer.writeAll("`\n");
+    try writer.writeAll("`");
+
+    if (issue.reason) |reason| {
+        try writer.writeAll(": ");
+        try writeCiEscaped(writer, reason);
+    }
+
+    try writer.writeAll("\n");
 }
 
 /// Percent-encode the three characters that workflow-command parsers
@@ -88,8 +95,17 @@ fn writeIssueJson(
     try w.objectField("field");
     try w.write(issue.field);
 
+    if (issue.reason) |reason| {
+        try w.objectField("reason");
+        try w.write(reason);
+    }
+
     try w.objectField("message");
-    try w.print("\"{s} `{s}`\"", .{ issue.tag.label(), issue.field });
+    if (issue.reason) |reason| {
+        try w.print("\"{s} `{s}`: {s}\"", .{ issue.tag.label(), issue.field, reason });
+    } else {
+        try w.print("\"{s} `{s}`\"", .{ issue.tag.label(), issue.field });
+    }
 
     try w.endObject();
 }
@@ -137,6 +153,10 @@ pub fn writeIssuesHuman(allocator: Allocator, scan_result: ScanResult, config: C
             try doc.write(issue.tag.label());
             try doc.write(" ");
             try doc.code(issue.field);
+            if (issue.reason) |reason| {
+                try doc.write(": ");
+                try doc.write(reason);
+            }
             try doc.endListItem();
         }
 
