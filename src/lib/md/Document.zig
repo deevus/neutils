@@ -268,12 +268,8 @@ fn writeEscapedBytes(w: *Writer, state: State, text: []const u8) !void {
     switch (state) {
         .document => unreachable,
         .table_row => {
-            // zigdown's table parser doesn't honor CommonMark's `\|` escape —
-            // it splits on every PIPE token regardless of a preceding backslash.
-            // Swap `|` for U+FF5C FULLWIDTH VERTICAL LINE so it renders as a
-            // visually similar glyph without breaking the grid.
             for (text) |c| switch (c) {
-                '|' => try w.writeAll("\u{FF5C}"),
+                '|' => try w.writeAll("\\|"),
                 '\\' => try w.writeAll("\\\\"),
                 '\n' => try w.writeAll("<br>"),
                 '\r' => {},
@@ -440,7 +436,7 @@ test "table escapes pipe, backslash, and newline in cells" {
     try testing.expectEqualStrings(
         "|Type|Key|Value|\n" ++
             "|-|-|-|\n" ++
-            "|html|desc\u{FF5C}ription|line1<br>line2\\\\path|\n" ++
+            "|html|desc\\|ription|line1<br>line2\\\\path|\n" ++
             "\n",
         aw.written(),
     );
@@ -482,7 +478,7 @@ test "writeFormatted routes custom format() through escape" {
     try doc.endTable();
 
     try testing.expectEqualStrings(
-        "|V|\n|-|\n|a\u{FF5C}b\u{FF5C}c|\n\n",
+        "|V|\n|-|\n|a\\|b\\|c|\n\n",
         aw.written(),
     );
 }
