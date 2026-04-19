@@ -3,6 +3,7 @@ pub const Meta = struct {
     key: []const u8 = "",
     value: Value = .empty,
     namespace: Namespace = .html,
+    meta_key: MetaAttribute = .name,
 
     const init: Meta = .{};
 
@@ -89,6 +90,27 @@ pub const Meta = struct {
                 .html => "HTML",
             };
         }
+
+        pub fn schema(ns: Namespace) ScanResult.Schema {
+            return switch (ns) {
+                .twitter => .twitter,
+                else => .opengraph,
+            };
+        }
+
+        pub fn requiredAttribute(ns: Namespace) MetaAttribute {
+            return switch (ns) {
+                .og, .article, .book, .profile, .music, .video, .fb => .property,
+                .twitter, .html => .name,
+            };
+        }
+
+        pub fn attributeMismatchSeverity(ns: Namespace) ScanResult.Issue.Severity {
+            return switch (ns) {
+                .og, .article, .book, .profile, .music, .video, .fb => .err,
+                .twitter, .html => .warn,
+            };
+        }
     };
 
     const HtmlKey = enum {
@@ -125,16 +147,16 @@ pub const Meta = struct {
         value,
     };
 
-    pub const MetaKey = enum {
+    pub const MetaAttribute = enum {
         name,
         property,
         content,
     };
 
-    const key_map: StaticStringMap(MetaKey) = .initComptime(&.{
-        .{ "name", MetaKey.name },
-        .{ "property", MetaKey.property },
-        .{ "content", MetaKey.content },
+    const key_map: StaticStringMap(MetaAttribute) = .initComptime(&.{
+        .{ "name", MetaAttribute.name },
+        .{ "property", MetaAttribute.property },
+        .{ "content", MetaAttribute.content },
     });
 
     pub fn parse(slice: []const u8) ?Meta {
@@ -174,15 +196,18 @@ pub const Meta = struct {
             }
 
             if (key) |k| {
-                if (std.meta.stringToEnum(MetaKey, k)) |meta_key| switch (meta_key) {
-                    .name, .property => {
-                        key_state = .key;
-                    },
-                    .content => {
-                        key_state = .value;
-                        has_content = true;
-                    },
-                };
+                if (std.meta.stringToEnum(MetaAttribute, k)) |meta_key| {
+                    switch (meta_key) {
+                        .name, .property => {
+                            result.meta_key = meta_key;
+                            key_state = .key;
+                        },
+                        .content => {
+                            key_state = .value;
+                            has_content = true;
+                        },
+                    }
+                }
 
                 key_start = null;
                 key = null;
@@ -253,11 +278,13 @@ pub const ScanResult = struct {
         pub const Tag = enum {
             missing_required,
             invalid_url,
+            invalid_attribute,
 
             pub fn label(self: Tag) []const u8 {
                 return switch (self) {
                     .missing_required => "missing required field",
                     .invalid_url => "invalid URL",
+                    .invalid_attribute => "invalid attribute",
                 };
             }
 
@@ -372,7 +399,30 @@ pub const ScanResult = struct {
         };
     }
 
+    fn expectMetaAttribute(self: *ScanResult, allocator: Allocator, meta: Meta) !void {
+        const expected = meta.namespace.requiredAttribute();
+        if (meta.meta_key == expected) return;
+
+        const reason = try std.fmt.allocPrint(allocator, "expected {}, got {}", .{ expected, meta.meta_key });
+
+        try self.appendIssue(allocator, .{
+            .tag = .invalid_attribute,
+            .severity = meta.namespace.attributeMismatchSeverity(),
+            .schema = meta.namespace.schema(),
+            .field = meta.key,
+            .reason = reason,
+        });
+    }
+
+    fn validateMetaKeys(self: *ScanResult, allocator: Allocator) !void {
+        for (self.meta_tags.items) |meta| {
+            try self.expectMetaAttribute(allocator, meta);
+        }
+    }
+
     pub fn validate(self: *ScanResult, allocator: Allocator, schemas: []const Schema) !ValidateResult {
+        try self.validateMetaKeys(allocator);
+
         for (schemas) |schema| {
             switch (schema) {
                 .opengraph => {
