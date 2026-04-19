@@ -100,11 +100,11 @@ pub fn build(b: *std.Build) !void {
 
     const test_all_step = b.step("test", "Run all tests");
 
-    // codegen
+    // codegen — must build for host since it runs at build time
     const gen_html_entities = createExecutable(b, "gen-html-entities", .{
         .mod_opts = .{
             .root_source_file = b.path("build/gen_html_entities.zig"),
-            .target = target,
+            .target = b.graph.host,
             .optimize = optimize,
         },
         .test_all_step = test_all_step,
