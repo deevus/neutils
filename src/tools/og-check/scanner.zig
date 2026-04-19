@@ -251,10 +251,12 @@ pub const ScanResult = struct {
 
         pub const Tag = enum {
             missing_required,
+            invalid_url,
 
             pub fn label(self: Tag) []const u8 {
                 return switch (self) {
                     .missing_required => "missing required field",
+                    .invalid_url => "invalid URL",
                 };
             }
 
@@ -275,6 +277,13 @@ pub const ScanResult = struct {
 
         pub fn json(self: Schema) []const u8 {
             return @tagName(self);
+        }
+
+        pub fn namespaces(self: Schema) []const Meta.Namespace {
+            return switch (self) {
+                .opengraph => &.{ .og, .article, .book, .profile, .music, .video },
+                .twitter => &.{.twitter},
+            };
         }
     };
 
@@ -320,12 +329,54 @@ pub const ScanResult = struct {
         warnings_only,
     };
 
+    const url_keys: StaticStringMap([]const []const u8) = .initComptime(&.{
+        .{
+            @tagName(Schema.opengraph), &.{
+                "og:url",
+                // image
+                "og:image",
+                "og:image:url",
+                "og:image:secure_url",
+                // audio
+                "og:audio",
+                "og:audio:url",
+                "og:audio:secure_url",
+                // video
+                "og:video",
+                "og:video:url",
+                "og:video:secure_url",
+                // payment
+                "payment:success_url",
+            },
+        },
+
+        .{
+            @tagName(Schema.twitter),
+            &.{
+                "twitter:url",
+                // image
+                "twitter:image",
+                "twitter:image:src",
+                //player
+                "twitter:player",
+                "twitter:player:url",
+                "twitter:player:stream",
+            },
+        },
+    });
+
+    fn validateUrlsForSchema(self: *ScanResult, allocator: Allocator, schema: Schema) !void {
+        if (url_keys.get(@tagName(schema))) |keys| for (keys) |key| {
+            try self.requireValidUrl(allocator, schema, key);
+        };
+    }
+
     pub fn validate(self: *ScanResult, allocator: Allocator, schemas: []const Schema) !ValidateResult {
         for (schemas) |schema| {
             switch (schema) {
                 .opengraph => {
                     try self.requireKey(allocator, .opengraph, "og:title");
-                    try self.requireKey(allocator, .opengraph, "og:image");
+                    try self.requireAnyKey(allocator, .opengraph, &.{ "og:image", "og:image:url" });
                     try self.requireKey(allocator, .opengraph, "og:type");
                     try self.requireKey(allocator, .opengraph, "og:url");
                 },
@@ -335,11 +386,36 @@ pub const ScanResult = struct {
                     try self.requireAnyKey(allocator, .twitter, &.{ "twitter:image", "og:image" });
                 },
             }
+
+            try self.validateUrlsForSchema(allocator, schema);
         }
 
         if (self.errors.items.len > 0) return .errors;
         if (self.warnings.items.len > 0) return .warnings_only;
         return .success;
+    }
+
+    fn requireValidUrl(self: *ScanResult, allocator: Allocator, schema: Schema, key: []const u8) !void {
+        if (self.findByKey(key)) |meta| {
+            const url = std.Uri.parse(meta.value.raw) catch {
+                try self.appendIssue(allocator, .{
+                    .tag = .invalid_url,
+                    .schema = schema,
+                    .field = key,
+                });
+                return;
+            };
+
+            // URLs must be http or https scheme
+            if (!(std.mem.eql(u8, url.scheme, "http") or std.mem.eql(u8, url.scheme, "https"))) {
+                try self.appendIssue(allocator, .{
+                    .tag = .invalid_url,
+                    .schema = schema,
+                    .field = key,
+                });
+                return;
+            }
+        }
     }
 
     fn requireKey(self: *ScanResult, allocator: Allocator, schema: Schema, key: []const u8) !void {
