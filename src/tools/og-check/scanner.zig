@@ -609,3 +609,248 @@ test "Value.format handles text mixed with entities" {
 test "Value.format leaves an unterminated entity reference intact" {
     try expectFormat("&amp no semicolon", "&amp no semicolon");
 }
+
+fn runValidate(
+    allocator: Allocator,
+    html: []const u8,
+    schemas: []const ScanResult.Schema,
+) !struct { result: ScanResult, status: ScanResult.ValidateResult } {
+    var result = try ScanResult.scan(allocator, html);
+    const status = try result.validate(allocator, schemas);
+    return .{ .result = result, .status = status };
+}
+
+fn findIssue(
+    issues: []const ScanResult.Issue,
+    tag: ScanResult.Issue.Tag,
+    field: []const u8,
+) ?ScanResult.Issue {
+    for (issues) |i| {
+        if (i.tag == tag and std.mem.eql(u8, i.field, field)) return i;
+    }
+    return null;
+}
+
+const valid_og_html =
+    \\<meta property="og:title" content="Hello">
+    \\<meta property="og:image" content="https://example.com/img.png">
+    \\<meta property="og:type" content="website">
+    \\<meta property="og:url" content="https://example.com">
+;
+
+test "validate: minimal valid opengraph → success" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const v = try runValidate(arena.allocator(), valid_og_html, &.{.opengraph});
+    try testing.expect(v.status == .success);
+    try testing.expectEqual(@as(usize, 0), v.result.errors.items.len);
+    try testing.expectEqual(@as(usize, 0), v.result.warnings.items.len);
+}
+
+test "validate: og:image:url satisfies image requirement" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html =
+        \\<meta property="og:title" content="Hello">
+        \\<meta property="og:image:url" content="https://example.com/img.png">
+        \\<meta property="og:type" content="website">
+        \\<meta property="og:url" content="https://example.com">
+    ;
+
+    const v = try runValidate(arena.allocator(), html, &.{.opengraph});
+    try testing.expect(v.status == .success);
+}
+
+test "validate: missing og:title → missing_required error" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html =
+        \\<meta property="og:image" content="https://example.com/img.png">
+        \\<meta property="og:type" content="website">
+        \\<meta property="og:url" content="https://example.com">
+    ;
+
+    const v = try runValidate(arena.allocator(), html, &.{.opengraph});
+    try testing.expect(v.status == .errors);
+    try testing.expect(findIssue(v.result.errors.items, .missing_required, "og:title") != null);
+}
+
+test "validate: empty document → all required opengraph fields missing" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const v = try runValidate(arena.allocator(), "", &.{.opengraph});
+    try testing.expect(v.status == .errors);
+    try testing.expect(findIssue(v.result.errors.items, .missing_required, "og:title") != null);
+    try testing.expect(findIssue(v.result.errors.items, .missing_required, "og:image") != null);
+    try testing.expect(findIssue(v.result.errors.items, .missing_required, "og:type") != null);
+    try testing.expect(findIssue(v.result.errors.items, .missing_required, "og:url") != null);
+}
+
+test "validate: opengraph tag with name= → invalid_attribute error" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html =
+        \\<meta name="og:title" content="Hello">
+        \\<meta property="og:image" content="https://example.com/img.png">
+        \\<meta property="og:type" content="website">
+        \\<meta property="og:url" content="https://example.com">
+    ;
+
+    const v = try runValidate(arena.allocator(), html, &.{.opengraph});
+    try testing.expect(v.status == .errors);
+    const issue = findIssue(v.result.errors.items, .invalid_attribute, "og:title") orelse return error.TestExpectedIssue;
+    try testing.expect(issue.severity == .err);
+}
+
+test "validate: twitter tag with property= → invalid_attribute warning" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html =
+        \\<meta property="twitter:card" content="summary">
+        \\<meta name="twitter:title" content="Hello">
+        \\<meta name="twitter:image" content="https://example.com/img.png">
+    ;
+
+    const v = try runValidate(arena.allocator(), html, &.{.twitter});
+    try testing.expect(v.status == .warnings_only);
+    const issue = findIssue(v.result.warnings.items, .invalid_attribute, "twitter:card") orelse return error.TestExpectedIssue;
+    try testing.expect(issue.severity == .warn);
+    try testing.expect(issue.schema == .twitter);
+}
+
+test "validate: html meta with property= → invalid_attribute warning" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html = valid_og_html ++
+        \\
+        \\<meta property="description" content="A page">
+    ;
+
+    const v = try runValidate(arena.allocator(), html, &.{.opengraph});
+    try testing.expect(v.status == .warnings_only);
+    const issue = findIssue(v.result.warnings.items, .invalid_attribute, "description") orelse return error.TestExpectedIssue;
+    try testing.expect(issue.severity == .warn);
+}
+
+test "validate: html meta with name= is not flagged" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html = valid_og_html ++
+        \\
+        \\<meta name="description" content="A page">
+        \\<meta name="author" content="Jane">
+        \\<meta name="keywords" content="one,two">
+    ;
+
+    const v = try runValidate(arena.allocator(), html, &.{.opengraph});
+    try testing.expect(v.status == .success);
+}
+
+test "validate: <title> element does not trigger attribute warning" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html = "<title>My Page</title>\n" ++ valid_og_html;
+
+    const v = try runValidate(arena.allocator(), html, &.{.opengraph});
+    try testing.expect(v.status == .success);
+}
+
+test "validate: invalid URL is flagged" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html =
+        \\<meta property="og:title" content="Hello">
+        \\<meta property="og:image" content="not a url">
+        \\<meta property="og:type" content="website">
+        \\<meta property="og:url" content="https://example.com">
+    ;
+
+    const v = try runValidate(arena.allocator(), html, &.{.opengraph});
+    try testing.expect(v.status == .errors);
+    try testing.expect(findIssue(v.result.errors.items, .invalid_url, "og:image") != null);
+}
+
+test "validate: non-http URL scheme is flagged" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html =
+        \\<meta property="og:title" content="Hello">
+        \\<meta property="og:image" content="javascript:alert(1)">
+        \\<meta property="og:type" content="website">
+        \\<meta property="og:url" content="https://example.com">
+    ;
+
+    const v = try runValidate(arena.allocator(), html, &.{.opengraph});
+    try testing.expect(v.status == .errors);
+    try testing.expect(findIssue(v.result.errors.items, .invalid_url, "og:image") != null);
+}
+
+test "validate: twitter requires card, title, image (with og fallback)" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html =
+        \\<meta name="twitter:card" content="summary">
+        \\<meta property="og:title" content="Hello">
+        \\<meta property="og:image" content="https://example.com/img.png">
+    ;
+
+    const v = try runValidate(arena.allocator(), html, &.{.twitter});
+    try testing.expect(v.status == .success);
+}
+
+test "validate: missing twitter:card is flagged" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html =
+        \\<meta name="twitter:title" content="Hello">
+        \\<meta name="twitter:image" content="https://example.com/img.png">
+    ;
+
+    const v = try runValidate(arena.allocator(), html, &.{.twitter});
+    try testing.expect(v.status == .errors);
+    try testing.expect(findIssue(v.result.errors.items, .missing_required, "twitter:card") != null);
+}
+
+test "validate: errors dominate warnings in status" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html =
+        \\<meta name="og:title" content="Hello">
+        \\<meta property="og:image" content="https://example.com/img.png">
+        \\<meta property="og:type" content="website">
+        \\<meta property="og:url" content="https://example.com">
+        \\<meta property="description" content="A page">
+    ;
+
+    const v = try runValidate(arena.allocator(), html, &.{.opengraph});
+    try testing.expect(v.status == .errors);
+    try testing.expect(v.result.errors.items.len >= 1);
+    try testing.expect(v.result.warnings.items.len >= 1);
+}
+
+test "validate: both schemas validated in one pass" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html = valid_og_html ++
+        \\
+        \\<meta name="twitter:card" content="summary">
+    ;
+
+    const v = try runValidate(arena.allocator(), html, &.{ .opengraph, .twitter });
+    try testing.expect(v.status == .success);
+}
