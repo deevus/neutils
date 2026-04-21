@@ -1,3 +1,5 @@
+const user_agent = "og-check/" ++ build_options.version ++ " (+https://github.com/deevus/neutils)";
+
 /// Fetches the body of the given URI using an HTTP GET request.
 ///
 /// Caller is responsible for freeing the returned slice.
@@ -19,7 +21,7 @@ pub fn getBodyAlloc(allocator: Allocator, uri: Uri) ![]const u8 {
             },
             .{
                 .name = "user-agent",
-                .value = "og-check/" ++ build_options.version ++ " (+https://github.com/deevus/neutils)",
+                .value = user_agent,
             },
         },
     });
@@ -29,6 +31,25 @@ pub fn getBodyAlloc(allocator: Allocator, uri: Uri) ![]const u8 {
     }
 
     return try body.toOwnedSlice();
+}
+
+pub fn headStatus(allocator: Allocator, uri: Uri) !std.http.Status {
+    var http_client: Client = .{ .allocator = allocator };
+    defer http_client.deinit();
+
+    const result = try http_client.fetch(.{
+        .location = .{ .uri = uri },
+        .method = .HEAD,
+        .response_writer = null,
+        .extra_headers = &.{
+            .{
+                .name = "user-agent",
+                .value = user_agent,
+            },
+        },
+    });
+
+    return result.status;
 }
 
 const std = @import("std");

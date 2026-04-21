@@ -468,6 +468,18 @@ pub const ScanResult = struct {
                 });
                 return;
             }
+
+            switch (try fetch.headStatus(allocator, url)) {
+                .ok => {},
+                else => |status| {
+                    try self.appendIssue(allocator, .{
+                        .tag = .invalid_url,
+                        .schema = schema,
+                        .field = key,
+                        .reason = try std.fmt.allocPrint(allocator, "URL returned status: {s}", .{status.phrase() orelse "Unknown"}),
+                    });
+                },
+            }
         }
     }
 
@@ -546,6 +558,8 @@ const StaticStringMap = std.StaticStringMap;
 const Writer = std.Io.Writer;
 
 const html_entities = @import("html_entities").characters;
+
+const fetch = @import("fetch.zig");
 
 fn expectFormat(expected: []const u8, raw: []const u8) !void {
     var out: Writer.Allocating = .init(testing.allocator);
