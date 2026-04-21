@@ -399,3 +399,59 @@ const Document = md.Document;
 const Config = @import("Config.zig");
 
 const build_options = @import("build_options");
+
+// ---------------------------------------------------------------------------
+// Failing tests for known bugs (see code review).
+// ---------------------------------------------------------------------------
+
+const testing = std.testing;
+
+// Bug: `writeIssuesJson` builds the `message` field with
+//   w.print("\"{s} `{s}`: {s}\"", ...)
+// which hand-rolls a JSON string literal and does not escape embedded quotes,
+// backslashes, or control characters. Any reason/field containing one of those
+// produces invalid JSON.
+test "BUG: writeIssuesJson escapes quotes/backslashes in message field" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var scan_result: ScanResult = .{};
+    try scan_result.errors.append(allocator, .{
+        .tag = .invalid_url,
+        .severity = .err,
+        .schema = .opengraph,
+        .field = "og:image",
+        // Reason contains a literal `"` and `\` — both MUST be escaped in JSON.
+        .reason = "bad value \"oops\" with a \\ backslash",
+    });
+
+    const config: Config = .{ .url = "https://example.com" };
+
+    var out: AllocatingWriter = .init(allocator);
+    defer out.deinit();
+
+    try writeIssuesJson(scan_result, config, &out.writer);
+
+    // The whole document must be valid JSON. If the `message` field is built
+    // by string interpolation without escaping, parsing fails here.
+    var parsed = std.json.parseFromSlice(
+        std.json.Value,
+        allocator,
+        out.written(),
+        .{},
+    ) catch |err| {
+        std.debug.print("invalid JSON emitted:\n{s}\n", .{out.written()});
+        return err;
+    };
+    defer parsed.deinit();
+
+    // And the message itself must contain the raw (unescaped) characters
+    // once decoded.
+    const issues = parsed.value.object.get("issues").?.array;
+    try testing.expectEqual(@as(usize, 1), issues.items.len);
+    const message = issues.items[0].object.get("message").?.string;
+    try testing.expect(std.mem.indexOf(u8, message, "\"oops\"") != null);
+    try testing.expect(std.mem.indexOf(u8, message, "\\ backslash") != null);
+}
+

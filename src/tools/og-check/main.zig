@@ -69,3 +69,10 @@ const ScanResult = scanner.ScanResult;
 const render = @import("render.zig");
 
 const md = @import("md");
+
+test {
+    std.testing.refAllDeclsRecursive(@This());
+    _ = @import("render.zig");
+    _ = @import("fetch.zig");
+    _ = @import("Config.zig");
+}

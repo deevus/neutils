@@ -856,6 +856,91 @@ test "validate: errors dominate warnings in status" {
     try testing.expect(v.result.warnings.items.len >= 1);
 }
 
+// ---------------------------------------------------------------------------
+// Failing tests for known bugs (see code review).
+// Each test documents the bug it pins down. They are expected to FAIL on the
+// current implementation; fixing the bug should make them pass.
+// ---------------------------------------------------------------------------
+
+// Bug: `Meta.parse` only recognises double-quoted attribute values. HTML
+// permits single quotes, so `content='...'` is silently dropped.
+test "BUG: scanner accepts single-quoted attribute values" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html =
+        \\<meta property='og:title' content='Hello'>
+    ;
+
+    var result = try ScanResult.scan(arena.allocator(), html);
+    try testing.expect(result.findByKey("og:title") != null);
+}
+
+// Bug: `ScanResult.scan` closes a <meta> tag at the first '>' it sees, even if
+// that '>' is inside a quoted attribute value. The tag is then dropped.
+test "BUG: scanner handles '>' inside a quoted attribute value" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html =
+        \\<meta property="og:title" content="a>b">
+    ;
+
+    var result = try ScanResult.scan(arena.allocator(), html);
+    const meta = result.findByKey("og:title") orelse return error.TestExpectedMeta;
+    try testing.expectEqualStrings("a>b", meta.value.raw);
+}
+
+// Bug: `<meta>` tokens inside <script> / <style> / HTML comments are parsed as
+// real meta tags because the scanner never tracks context.
+test "BUG: scanner ignores <meta> inside <script> blocks" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html =
+        \\<script>var s = '<meta property="og:title" content="FAKE">';</script>
+        \\<meta property="og:title" content="REAL">
+    ;
+
+    var result = try ScanResult.scan(arena.allocator(), html);
+    const meta = result.findByKey("og:title") orelse return error.TestExpectedMeta;
+    try testing.expectEqualStrings("REAL", meta.value.raw);
+
+    // No duplicate from the script body.
+    var count: usize = 0;
+    for (result.meta_tags.items) |m| {
+        if (std.mem.eql(u8, m.key, "og:title")) count += 1;
+    }
+    try testing.expectEqual(@as(usize, 1), count);
+}
+
+test "BUG: scanner ignores <meta> inside HTML comments" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html =
+        \\<!-- <meta property="og:title" content="FAKE"> -->
+        \\<meta property="og:title" content="REAL">
+    ;
+
+    var result = try ScanResult.scan(arena.allocator(), html);
+    const meta = result.findByKey("og:title") orelse return error.TestExpectedMeta;
+    try testing.expectEqualStrings("REAL", meta.value.raw);
+}
+
+// Bug: <title> extraction literally looks for `<title>`, so any title with
+// attributes (legal HTML) is skipped.
+test "BUG: scanner extracts <title> with attributes" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+
+    const html = "<title lang=\"en\">Hello</title>";
+
+    var result = try ScanResult.scan(arena.allocator(), html);
+    const meta = result.findByKey("title") orelse return error.TestExpectedMeta;
+    try testing.expectEqualStrings("Hello", meta.value.raw);
+}
+
 test "validate: both schemas validated in one pass" {
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
     defer arena.deinit();
@@ -867,4 +952,20 @@ test "validate: both schemas validated in one pass" {
 
     const v = try runValidate(arena.allocator(), html, &.{ .opengraph, .twitter });
     try testing.expect(v.status == .success);
+}
+
+// These three panic the test runner on the current implementation, so they
+// live at the very end — otherwise subsequent tests never report.
+// Bug: `Value.format` indexes `slice[0]` / `slice[1]` without length checks, so
+// short malformed entities like `&;` and `&#;` panic instead of passing through.
+test "BUG: Value.format does not panic on empty entity '&;'" {
+    try expectFormat("&;", "&;");
+}
+
+test "BUG: Value.format does not panic on bare '&#;' numeric entity" {
+    try expectFormat("&#;", "&#;");
+}
+
+test "BUG: Value.format does not panic on '&#x;' hex entity with no digits" {
+    try expectFormat("&#x;", "&#x;");
 }
