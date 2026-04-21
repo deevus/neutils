@@ -1,0 +1,10 @@
+{
+  "name": "neutils-build",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^20",
+    "zzon": "^1"
+  }
+}

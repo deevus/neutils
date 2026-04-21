@@ -1,0 +1,81 @@
+#!/usr/bin/env -S bun run
+//MISE description="Cross-compile and generate npm scaffold for publishable tools"
+
+import { loadNpmConfig } from "../../build/npm-config.ts" with { type: "macro" };
+import { $ } from "bun";
+
+const { version, cfg } = await loadNpmConfig();
+
+for (const tool of cfg.tools) {
+  const root = `zig-out/npm/${tool.name}`;
+
+  for (const t of cfg.targets) {
+    await $`zig build ${tool.name} -Dtarget=${t.triple} --release=small --prefix zig-out/npm-bin/${t.os}-${t.cpu}`;
+  }
+
+  const optionalDependencies = Object.fromEntries(
+    cfg.targets.map((t) => [`${cfg.scope}/${tool.name}-${t.os}-${t.cpu}`, version]),
+  );
+  const shimPath = `${root}/${tool.name}/bin/${tool.name}.js`;
+  const npmReadme = `src/tools/${tool.name}/npm/README.md`;
+  const readmeSrc = (await Bun.file(npmReadme).exists())
+    ? npmReadme
+    : `src/tools/${tool.name}/README.md`;
+
+  await Promise.all([
+    writeJson(`${root}/${tool.name}/package.json`, {
+      name: `${cfg.scope}/${tool.name}`,
+      version,
+      description: tool.description,
+      bin: { [tool.name]: `bin/${tool.name}.js` },
+      files: ["bin", "README.md"],
+      repository: { type: "git", url: "git+https://github.com/deevus/neutils.git" },
+      license: "MIT",
+      engines: { node: ">=16" },
+      optionalDependencies,
+    }),
+    Bun.write(shimPath, shim(tool.name, cfg.scope)),
+    Bun.write(`${root}/${tool.name}/README.md`, Bun.file(readmeSrc)),
+  ]);
+  await $`chmod +x ${shimPath}`;
+
+  await Promise.all(
+    cfg.targets.map(async (t) => {
+      const exe = `${tool.name}${t.exe_ext ?? ""}`;
+      const dir = `${root}/platforms/${t.os}-${t.cpu}`;
+      await Promise.all([
+        writeJson(`${dir}/package.json`, {
+          name: `${cfg.scope}/${tool.name}-${t.os}-${t.cpu}`,
+          version,
+          os: [t.os],
+          cpu: [t.cpu],
+          files: ["bin"],
+          license: "MIT",
+        }),
+        Bun.write(
+          `${dir}/bin/${exe}`,
+          Bun.file(`zig-out/npm-bin/${t.os}-${t.cpu}/bin/${exe}`),
+        ),
+      ]);
+    }),
+  );
+}
+
+function shim(tool: string, scope: string): string {
+  return `#!/usr/bin/env node
+const { spawnSync } = require("child_process");
+const { platform, arch } = process;
+const pkg = "${scope}/${tool}-" + platform + "-" + arch;
+const binName = platform === "win32" ? "${tool}.exe" : "${tool}";
+let binaryPath;
+try { binaryPath = require.resolve(pkg + "/bin/" + binName); }
+catch { console.error("${tool}: unsupported platform " + platform + "-" + arch + "; missing optional dep " + pkg); process.exit(1); }
+const r = spawnSync(binaryPath, process.argv.slice(2), { stdio: "inherit" });
+if (r.error) { console.error(r.error.message); process.exit(1); }
+process.exit(r.status ?? 1);
+`;
+}
+
+async function writeJson(path: string, obj: unknown): Promise<void> {
+  await Bun.write(path, JSON.stringify(obj, null, 2) + "\n");
+}

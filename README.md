@@ -29,16 +29,26 @@ Binaries in `zig-out/bin/`.
 
 Download from [GitHub Releases](https://github.com/deevus/neutils/releases) for Linux, macOS, and Windows (x86_64 and aarch64).
 
+### npm
+
+Tools listed with an npm package below can be installed globally or run on demand, e.g.:
+
+```bash
+npm i -g @neutils/og-check
+# or
+npx @neutils/og-check https://example.com
+```
+
 ## Tools
 
-| Tool | Description |
-|------|-------------|
-| [`urlparse`](src/tools/urlparse/README.md) | Parse and display URL components |
-| [`urlencode`](src/tools/urlencode/README.md) | Percent-encode a string for use in URLs |
-| [`mbox-diff`](src/tools/mbox-diff/README.md) | Find new emails between two mbox files |
-| [`mbox-index`](src/tools/mbox-index/README.md) | Build an index of an mbox file by message identifier |
-| [`mbox-gen`](src/tools/mbox-gen/README.md) | Generate synthetic mbox files for testing |
-| [`og-check`](src/tools/og-check/README.md) | Fetch a URL and render its OpenGraph / Twitter Card metadata |
+| Tool | Description | npm |
+|------|-------------|-----|
+| [`urlparse`](src/tools/urlparse/README.md) | Parse and display URL components | [`@neutils/urlparse`](https://www.npmjs.com/package/@neutils/urlparse) |
+| [`urlencode`](src/tools/urlencode/README.md) | Percent-encode a string for use in URLs | [`@neutils/urlencode`](https://www.npmjs.com/package/@neutils/urlencode) |
+| [`mbox-diff`](src/tools/mbox-diff/README.md) | Find new emails between two mbox files | — |
+| [`mbox-index`](src/tools/mbox-index/README.md) | Build an index of an mbox file by message identifier | — |
+| [`mbox-gen`](src/tools/mbox-gen/README.md) | Generate synthetic mbox files for testing | — |
+| [`og-check`](src/tools/og-check/README.md) | Fetch a URL and render its OpenGraph / Twitter Card metadata | [`@neutils/og-check`](https://www.npmjs.com/package/@neutils/og-check) |
 
 ## Usage
 

@@ -1,0 +1,20 @@
+#!/usr/bin/env -S bun run
+//MISE description="Publish generated npm packages (platforms first, wrapper last)"
+//MISE depends=["npm-build"]
+//USAGE flag "--dry-run" help="Pass --dry-run to every npm publish call"
+
+import { loadNpmConfig } from "../../build/npm-config.ts" with { type: "macro" };
+import { $ } from "bun";
+
+const { cfg } = await loadNpmConfig();
+const dryRun = process.env.usage_dry_run === "true" ? ["--dry-run"] : [];
+
+for (const tool of cfg.tools) {
+  await Promise.all(
+    cfg.targets.map(
+      (t) =>
+        $`npm publish --access public ${dryRun} zig-out/npm/${tool.name}/platforms/${t.os}-${t.cpu}`,
+    ),
+  );
+  await $`npm publish --access public ${dryRun} zig-out/npm/${tool.name}/${tool.name}`;
+}

@@ -8,3 +8,6 @@ docs/plans/
 .DS_Store
 diff.mbox
 zig-pkg/
+
+# npm build scaffolding
+node_modules/

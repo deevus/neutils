@@ -1,0 +1,25 @@
+.{
+    .scope = "@neutils",
+    .tools = .{
+        .{
+            .name = "og-check",
+            .description = "Fetch a URL and render its OpenGraph / Twitter Card metadata.",
+        },
+        .{
+            .name = "urlparse",
+            .description = "Parse and display URL components.",
+        },
+        .{
+            .name = "urlencode",
+            .description = "Percent-encode a string for use in URLs.",
+        },
+    },
+    .targets = .{
+        .{ .triple = "x86_64-linux", .os = "linux", .cpu = "x64" },
+        .{ .triple = "aarch64-linux", .os = "linux", .cpu = "arm64" },
+        .{ .triple = "x86_64-macos", .os = "darwin", .cpu = "x64" },
+        .{ .triple = "aarch64-macos", .os = "darwin", .cpu = "arm64" },
+        .{ .triple = "x86_64-windows", .os = "win32", .cpu = "x64", .exe_ext = ".exe" },
+        .{ .triple = "aarch64-windows", .os = "win32", .cpu = "arm64", .exe_ext = ".exe" },
+    },
+}
