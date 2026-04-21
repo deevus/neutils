@@ -57,6 +57,11 @@ for (const tool of cfg.tools) {
           os: [t.os],
           cpu: [t.cpu],
           files: ["bin"],
+          repository: {
+            type: "git",
+            url: "git+https://github.com/deevus/neutils.git",
+            directory: `src/tools/${tool.name}`,
+          },
           license: "MIT",
         }),
         Bun.write(
