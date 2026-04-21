@@ -29,7 +29,11 @@ for (const tool of cfg.tools) {
       description: tool.description,
       bin: { [tool.name]: `bin/${tool.name}.js` },
       files: ["bin", "README.md"],
-      repository: { type: "git", url: "git+https://github.com/deevus/neutils.git" },
+      repository: {
+        type: "git",
+        url: "git+https://github.com/deevus/neutils.git",
+        directory: `src/tools/${tool.name}`,
+      },
       license: "MIT",
       engines: { node: ">=16" },
       optionalDependencies,
