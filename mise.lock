@@ -132,6 +132,10 @@ url = "https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine-
 checksum = "sha256:2508c549b049b1d4342d08edc1cb42bfac169082b6e3069431b5bab9822dbb32"
 url = "https://github.com/sharkdp/hyperfine/releases/download/v1.20.0/hyperfine-v1.20.0-x86_64-pc-windows-msvc.zip"
 
+[[tools.node]]
+version = "22.22.2"
+backend = "core:node"
+
 [[tools.usage]]
 version = "3.2.0"
 backend = "aqua:jdx/usage"
