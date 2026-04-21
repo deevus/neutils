@@ -50,6 +50,7 @@ for (const tool of cfg.tools) {
     cfg.targets.map(async (t) => {
       const exe = `${tool.name}${t.exe_ext ?? ""}`;
       const dir = `${root}/platforms/${t.os}-${t.cpu}`;
+      const binDest = `${dir}/bin/${exe}`;
       await Promise.all([
         writeJson(`${dir}/package.json`, {
           name: `${cfg.scope}/${tool.name}-${t.os}-${t.cpu}`,
@@ -64,11 +65,10 @@ for (const tool of cfg.tools) {
           },
           license: "MIT",
         }),
-        Bun.write(
-          `${dir}/bin/${exe}`,
-          Bun.file(`zig-out/npm-bin/${t.os}-${t.cpu}/bin/${exe}`),
-        ),
+        Bun.write(binDest, Bun.file(`zig-out/npm-bin/${t.os}-${t.cpu}/bin/${exe}`)),
       ]);
+      // Restore execute bit (GitHub Actions upload-artifact's zip format loses it on Linux/macOS binaries)
+      await $`chmod +x ${binDest}`;
     }),
   );
 }
