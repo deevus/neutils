@@ -87,6 +87,20 @@ jobs:
           name: neutils-${{ matrix.target.os }}-${{ matrix.target.arch }}
           path: artifacts/
 
+      - name: Stage raw binaries for npm artifact
+        shell: bash
+        run: |
+          case "${{ matrix.target.os }}"   in macos)   nos=darwin ;; windows) nos=win32 ;; *) nos="${{ matrix.target.os }}" ;; esac
+          case "${{ matrix.target.arch }}" in x86_64) ncpu=x64 ;; aarch64) ncpu=arm64 ;; *) ncpu="${{ matrix.target.arch }}" ;; esac
+          mkdir -p npm-bin/${nos}-${ncpu}/bin
+          cp zig-out/bin/* npm-bin/${nos}-${ncpu}/bin/
+
+      - name: Upload raw binaries (for npm publish)
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-bin-${{ matrix.target.os }}-${{ matrix.target.arch }}
+          path: npm-bin/
+
   release:
     needs: build
     runs-on: ubuntu-latest
@@ -141,6 +155,13 @@ jobs:
         with:
           experimental: true
           install_args: "zig bun node"
+
+      - name: Download pre-built binaries from build matrix
+        uses: actions/download-artifact@v4
+        with:
+          pattern: npm-bin-*
+          path: zig-out/npm-bin
+          merge-multiple: true
 
       - name: Install Bun dev deps
         run: bun install --frozen-lockfile

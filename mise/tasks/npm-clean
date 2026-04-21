@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Remove generated npm scaffold and pre-staged binaries (forces npm-build to recompile)"
+set -euo pipefail
+
+rm -rf zig-out/npm zig-out/npm-bin
+
+echo "cleaned zig-out/npm and zig-out/npm-bin"

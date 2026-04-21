@@ -10,6 +10,9 @@ for (const tool of cfg.tools) {
   const root = `zig-out/npm/${tool.name}`;
 
   for (const t of cfg.targets) {
+    const exe = `${tool.name}${t.exe_ext ?? ""}`;
+    const binPath = `zig-out/npm-bin/${t.os}-${t.cpu}/bin/${exe}`;
+    if (await Bun.file(binPath).exists()) continue;
     await $`zig build ${tool.name} -Dtarget=${t.triple} --release=small --prefix zig-out/npm-bin/${t.os}-${t.cpu}`;
   }
 
