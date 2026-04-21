@@ -1,3 +1,7 @@
+pub const std_options: std.Options = .{
+    .logFn = md.log.zigdownSupressingLog,
+};
+
 pub fn main() !void {
     try cli.execute(std.heap.page_allocator, ogCheck);
 }
@@ -63,3 +67,5 @@ const scanner = @import("scanner.zig");
 const ScanResult = scanner.ScanResult;
 
 const render = @import("render.zig");
+
+const md = @import("md");

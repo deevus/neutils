@@ -2,6 +2,9 @@
 //! from `Document` so `Document` has no renderer dependency.
 
 pub fn renderPretty(allocator: Allocator, markdown_text: []const u8, writer: *Writer) !void {
+    var discarding_writer: Writer.Discarding = .init(&.{});
+    zigdown.debug.setStream(&discarding_writer.writer);
+
     var parser: Parser = .init(allocator, .{});
     defer parser.deinit();
     try parser.parseMarkdown(markdown_text);
