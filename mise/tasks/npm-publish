@@ -2,19 +2,23 @@
 //MISE description="Publish generated npm packages (platforms first, wrapper last)"
 //MISE depends=["npm-build"]
 //USAGE flag "--dry-run" help="Pass --dry-run to every npm publish call"
+//USAGE flag "--otp <code>" help="TOTP code for npm 2FA (e.g. --otp \"$(pass totp npmjs.com)\")"
 
 import { loadNpmConfig } from "../../build/npm-config.ts" with { type: "macro" };
 import { $ } from "bun";
 
 const { cfg } = await loadNpmConfig();
 const dryRun = process.env.usage_dry_run === "true" ? ["--dry-run"] : [];
+const otp = process.env.usage_otp ? ["--otp", process.env.usage_otp] : [];
+// Provenance attestations require GitHub Actions OIDC; enable only in CI.
+const provenance = process.env.GITHUB_ACTIONS === "true" ? ["--provenance"] : [];
 
 for (const tool of cfg.tools) {
   await Promise.all(
     cfg.targets.map(
       (t) =>
-        $`npm publish --access public ${dryRun} zig-out/npm/${tool.name}/platforms/${t.os}-${t.cpu}`,
+        $`npm publish --access public ${provenance} ${dryRun} ${otp} zig-out/npm/${tool.name}/platforms/${t.os}-${t.cpu}`,
     ),
   );
-  await $`npm publish --access public ${dryRun} zig-out/npm/${tool.name}/${tool.name}`;
+  await $`npm publish --access public ${provenance} ${dryRun} ${otp} zig-out/npm/${tool.name}/${tool.name}`;
 }
