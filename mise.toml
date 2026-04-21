@@ -6,6 +6,7 @@ git-cliff = "latest"
 hyperfine = "latest"
 zls = "0.15.1"
 bun = "latest"
+node = "22"
 
 [tasks.demo-urlparse]
 dir = "src/tools/urlparse/demo"
